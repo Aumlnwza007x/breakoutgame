@@ -99,7 +99,7 @@
         let boss = null;
         let bossProjectiles = [];
         let bossLives = 3;
-        let isWinState = false; // ตัวแปรใหม่สำหรับเช็คว่าชนะบอสหรือไม่
+        let isWinState = false;
 
         const config = {
             easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
@@ -127,7 +127,7 @@
         function spawnBoss() {
             bossMode = true;
             const baseHp = config[difficulty].bossHp;
-            const currentMaxHp = baseHp + (level * 3); // บอสเลือดเยอะขึ้นตามเลเวล
+            const currentMaxHp = baseHp + (level * 3);
             
             boss = {
                 x: canvas.width / 2 - 75,
@@ -359,10 +359,9 @@
             messageBox.classList.add('hidden');
             messageBox.classList.remove('flex');
             if(isWinState) {
-                resetGame(false);
-                // ไม่ต้องเรียก draw() ใหม่เพราะ requestAnimationFrame ยังทำงานอยู่ตราบใดที่ gameActive เป็น true
-                // แต่ใน endGame เราตั้ง gameActive = false ดังนั้นต้องเปลี่ยนกลับ
-                gameActive = true;
+                resetGame(false); // level++ อยู่ในนี้แล้ว
+                // เพิ่มคำสั่ง draw() เพื่อเริ่มลูปใหม่เพราะ gameActive ถูกเปลี่ยนเป็น true ใน resetGame แล้ว
+                draw();
             } else {
                 startModal.classList.remove('hidden');
             }
