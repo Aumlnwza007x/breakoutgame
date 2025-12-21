@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breakout Game - Boss Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        canvas {
+            background: #000;
+            display: block;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            cursor: none;
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="flex flex-col items-center space-y-4 max-w-4xl w-full">
+        <div class="text-center">
+            <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500">Breakout: Boss Evolution</h1>
+            <p id="levelIndicator" class="text-sm text-gray-400 font-mono">LEVEL 1</p>
+        </div>
+        
+        <div class="relative">
+            <canvas id="gameCanvas" width="800" height="600" class="w-full max-w-3xl border border-gray-700"></canvas>
+
+            <!-- UI Overlay: Start Modal -->
+            <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80 rounded-lg z-10">
+                <div class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center w-full max-w-sm mx-4 border border-gray-600">
+                    <h2 class="text-3xl font-bold mb-4 text-white">พร้อมสู้บอสไหม?</h2>
+                    <input type="text" id="nameInput" placeholder="ใส่ชื่อของคุณ" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 mb-4 text-center">
+                    
+                    <select id="difficultySelect" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 mb-6 cursor-pointer">
+                        <option value="easy">ง่าย</option>
+                        <option value="medium" selected>ปานกลาง</option>
+                        <option value="hard">ยาก</option>
+                    </select>
+                    
+                    <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-md transition duration-200">เริ่มเกม</button>
+                    <p class="text-xs text-gray-500 mt-4">*ไฟล์นี้สามารถรันแบบออฟไลน์ได้ทันที</p>
+                </div>
+            </div>
+
+            <!-- UI Overlay: Message Box -->
+            <div id="messageBox" class="absolute inset-0 hidden items-center justify-center bg-black bg-opacity-80 rounded-lg z-20">
+                <div class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center w-full max-w-sm mx-4 border border-gray-600">
+                    <h2 id="messageTitle" class="text-3xl font-bold mb-2 text-white"></h2>
+                    <p id="messageText" class="text-xl mb-6 text-gray-300"></p>
+                    <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200">เริ่มใหม่ / ด่านต่อไป</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center w-full max-w-3xl px-6 py-3 bg-gray-800 rounded-lg border border-gray-700">
+            <div class="text-sm uppercase tracking-widest text-gray-400">Score: <span id="scoreDisplay" class="text-white font-bold">0</span></div>
+            <div class="flex space-x-4">
+                <div class="text-sm uppercase tracking-widest text-gray-400">Lives: <span id="livesDisplay" class="text-red-400 font-bold">3</span></div>
+                <div id="bossShieldContainer" class="text-sm uppercase tracking-widest text-gray-400 hidden">Fire Shield: <span id="bossShieldDisplay" class="text-yellow-400 font-bold">3/3</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ส่วนประกอบหลักของเกม ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const startModal = document.getElementById('startModal');
+        const messageBox = document.getElementById('messageBox');
+        
+        let gameActive = false;
+        let score = 0;
+        let lives = 3;
+        let level = 1;
+        let paddleX;
+        const paddleWidth = 100;
+        const paddleHeight = 15;
+        const ballRadius = 8;
+        
+        let balls = [];
+        let bricks = [];
+        let difficulty = 'medium';
+        
+        // ระบบบอส
+        let bossMode = false;
+        let boss = null;
+        let bossProjectiles = [];
+        let bossLives = 3; // หากโดนไฟ 3 ครั้งจะแพ้
+
+        const config = {
+            easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
+            medium: { speed: 6, rows: 4, cols: 8, bossHp: 10 },
+            hard: { speed: 8, rows: 5, cols: 10, bossHp: 15 }
+        };
+
+        // ฟังก์ชันสร้างบล็อก
+        function initBricks() {
+            const { rows, cols } = config[difficulty];
+            const padding = 10;
+            const offsetTop = 60;
+            const offsetLeft = 35;
+            const bWidth = (canvas.width - (offsetLeft * 2) - (padding * (cols-1))) / cols;
+            const bHeight = 20;
+
+            bricks = [];
+            for(let c=0; c<cols; c++) {
+                bricks[c] = [];
+                for(let r=0; r<rows; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1, w: bWidth, h: bHeight };
+                }
+            }
+        }
+
+        // ฟังก์ชันสร้างบอส
+        function spawnBoss() {
+            bossMode = true;
+            const baseHp = config[difficulty].bossHp;
+            // พลังชีวิตบอสเพิ่มขึ้น 1.05 เท่าต่อ Level
+            const currentMaxHp = baseHp * Math.pow(1.050, level - 1);
+            
+            boss = {
+                x: canvas.width / 2 - 75,
+                y: 50,
+                w: 150,
+                h: 40,
+                hp: currentMaxHp,
+                maxHp: currentMaxHp,
+                dx: 2 + (level * 0.5),
+                lastShot: 0
+            };
+            bossProjectiles = [];
+            bossLives = 3; 
+            document.getElementById('bossShieldContainer').classList.remove('hidden');
+            updateUI();
+        }
+
+        // ฟังก์ชันรีเซ็ตเกม
+        function resetGame(fullReset = true) {
+            if(fullReset) {
+                level = 1;
+                score = 0;
+            } else {
+                level++;
+            }
+            
+            difficulty = document.getElementById('difficultySelect').value;
+            const settings = config[difficulty];
+            lives = 3;
+            bossMode = false;
+            boss = null;
+            bossProjectiles = [];
+            document.getElementById('bossShieldContainer').classList.add('hidden');
+            document.getElementById('levelIndicator').innerText = `LEVEL ${level}`;
+            
+            paddleX = (canvas.width - paddleWidth) / 2;
+            balls = [{
+                x: canvas.width / 2,
+                y: canvas.height - 40,
+                dx: (settings.speed + (level*0.5)) * (Math.random() > 0.5 ? 1 : -1),
+                dy: -(settings.speed + (level*0.5))
+            }];
+            initBricks();
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('scoreDisplay').innerText = score;
+            document.getElementById('livesDisplay').innerText = lives;
+            document.getElementById('bossShieldDisplay').innerText = bossLives + "/3";
+        }
+
+        // ควบคุมด้วยเมาส์
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            paddleX = e.clientX - rect.left - paddleWidth / 2;
+            if(paddleX < 0) paddleX = 0;
+            if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+        });
+
+        // ฟังก์ชันวาดเกมหลัก
+        function draw() {
+            if(!gameActive) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // วาดบล็อก (ถ้าไม่ใช่โหมดบอส)
+            if(!bossMode) {
+                let bricksLeft = 0;
+                bricks.forEach((col, c) => {
+                    col.forEach((b, r) => {
+                        if(b.status === 1) {
+                            bricksLeft++;
+                            const padding = 10;
+                            const offsetTop = 80;
+                            const offsetLeft = 35;
+                            b.x = (c * (b.w + padding)) + offsetLeft;
+                            b.y = (r * (b.h + padding)) + offsetTop;
+                            
+                            ctx.beginPath();
+                            ctx.roundRect(b.x, b.y, b.w, b.h, 4);
+                            ctx.fillStyle = `hsl(${200 + (r*20)}, 70%, 50%)`;
+                            ctx.fill();
+                            ctx.closePath();
+                        }
+                    });
+                });
+
+                if(bricksLeft === 0) {
+                    spawnBoss();
+                }
+            } 
+            // วาดบอส
+            else if(boss) {
+                ctx.beginPath();
+                ctx.roundRect(boss.x, boss.y, boss.w, boss.h, 10);
+                ctx.fillStyle = "#ef4444";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.closePath();
+
+                // หลอดเลือดบอส
+                const hbW = 200;
+                ctx.fillStyle = "#333";
+                ctx.fillRect(canvas.width/2 - hbW/2, 20, hbW, 15);
+                ctx.fillStyle = "#f87171";
+                ctx.fillRect(canvas.width/2 - hbW/2, 20, (boss.hp / boss.maxHp) * hbW, 15);
+
+                // บอสเคลื่อนที่
+                boss.x += boss.dx;
+                if(boss.x < 0 || boss.x + boss.w > canvas.width) boss.dx = -boss.dx;
+
+                // การโจมตีของบอส
+                const now = Date.now();
+                if(now - boss.lastShot > (2000 - (level * 100))) {
+                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 4 + (level * 0.2) });
+                    boss.lastShot = now;
+                }
+
+                // วาดและเช็คการชนของลูกไฟ
+                bossProjectiles.forEach((p, pi) => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 6, 0, Math.PI*2);
+                    ctx.fillStyle = "#fbbf24";
+                    ctx.fill();
+                    ctx.closePath();
+
+                    p.y += p.dy;
+
+                    if(p.y > canvas.height - paddleHeight - 20 && p.x > paddleX && p.x < paddleX + paddleWidth) {
+                        bossProjectiles.splice(pi, 1);
+                        bossLives--;
+                        updateUI();
+                        if(bossLives <= 0) endGame("คุณถูกไฟคลอก!", "ระวังตัวมากกว่านี้หน่อย");
+                    }
+                    if(p.y > canvas.height) bossProjectiles.splice(pi, 1);
+                });
+            }
+
+            // วาดไม้พาย
+            ctx.beginPath();
+            ctx.roundRect(paddleX, canvas.height - paddleHeight - 10, paddleWidth, paddleHeight, 8);
+            ctx.fillStyle = "#0095DD";
+            ctx.fill();
+            ctx.closePath();
+
+            // วาดลูกบอลและตรรกะการเคลื่อนที่
+            balls.forEach((ball, bi) => {
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI*2);
+                ctx.fillStyle = "#FFF";
+                ctx.fill();
+                ctx.closePath();
+
+                // ชนกำแพง
+                if(ball.x + ball.dx > canvas.width - ballRadius || ball.x + ball.dx < ballRadius) ball.dx = -ball.dx;
+                if(ball.y + ball.dy < ballRadius) ball.dy = -ball.dy;
+
+                // ชนไม้พาย
+                if(ball.y + ball.dy > canvas.height - paddleHeight - 20) {
+                    if(ball.x > paddleX && ball.x < paddleX + paddleWidth) {
+                        ball.dy = -Math.abs(ball.dy);
+                        let hitPoint = (ball.x - (paddleX + paddleWidth/2)) / (paddleWidth/2);
+                        ball.dx = hitPoint * (config[difficulty].speed + level);
+                    } else if (ball.y > canvas.height) {
+                        lives--;
+                        updateUI();
+                        if(lives <= 0) endGame("Game Over", "พยายามใหม่อีกครั้งนะ");
+                        else {
+                            ball.x = canvas.width / 2; ball.y = canvas.height - 40;
+                            ball.dy = -(config[difficulty].speed + level);
+                        }
+                    }
+                }
+
+                // ชนบล็อก
+                if(!bossMode) {
+                    bricks.forEach(col => {
+                        col.forEach(b => {
+                            if(b.status === 1) {
+                                if(ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+                                    ball.dy = -ball.dy; b.status = 0; score += 10; updateUI();
+                                }
+                            }
+                        });
+                    });
+                } 
+                // ชนบอส
+                else if(boss) {
+                    if(ball.x > boss.x && ball.x < boss.x + boss.w && ball.y > boss.y && ball.y < boss.y + boss.h) {
+                        ball.dy = -ball.dy;
+                        boss.hp -= 1;
+                        score += 50;
+                        updateUI();
+                        if(boss.hp <= 0) {
+                            boss = null;
+                            endGame("ชนะบอสแล้ว!", "ไปด่านต่อไปกันเลย");
+                        }
+                    }
+                }
+
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+            });
+
+            requestAnimationFrame(draw);
+        }
+
+        // จบเกม
+        function endGame(title, text) {
+            gameActive = false;
+            document.getElementById('messageTitle').innerText = title;
+            document.getElementById('messageText').innerText = `${text} (Level ${level}) คะแนน: ${score}`;
+            messageBox.classList.remove('hidden');
+            messageBox.classList.add('flex');
+            
+            if(title === "ชนะบอสแล้ว!") {
+                restartButton.innerText = "เข้าสู่ Level " + (level + 1);
+            } else {
+                restartButton.innerText = "เริ่มใหม่ตั้งแต่ Level 1";
+            }
+        }
+
+        // เริ่มเกม
+        startButton.onclick = () => {
+            startModal.classList.add('hidden');
+            gameActive = true;
+            resetGame(true);
+            draw();
+        };
+
+        // เล่นใหม่
+        restartButton.onclick = () => {
+            messageBox.classList.add('hidden');
+            messageBox.classList.remove('flex');
+            const isNextLevel = document.getElementById('messageTitle').innerText === "ชนะบอสแล้ว!";
+            if(isNextLevel) {
+                gameActive = true;
+                resetGame(false);
+                draw();
+            } else {
+                startModal.classList.remove('hidden');
+            }
+        };
+    </script>
+</body>
+</html>
