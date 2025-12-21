@@ -41,7 +41,7 @@
             <!-- UI Overlay: Start Modal -->
             <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80 rounded-lg z-10 p-4">
                 <div class="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm border border-gray-600">
-                    <h2 class="text-2xl md:text-3xl font-bold mb-4 text-white">พร้อมสู้บอสไหม?</h2>
+                    <h2 class="text-2xl md:text-3xl font-bold mb-4 text-white">เตรียมตัวให้พร้อม</h2>
                     <input type="text" id="nameInput" placeholder="ใส่ชื่อของคุณ" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 mb-4 text-center">
                     
                     <select id="difficultySelect" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 mb-6 cursor-pointer">
@@ -51,7 +51,7 @@
                     </select>
                     
                     <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-md transition duration-200">เริ่มเกม</button>
-                    <p class="text-[10px] text-gray-500 mt-4 uppercase tracking-tighter">* แตะหน้าจอเพื่อควบคุมไม้พายได้เลย</p>
+                    <p class="text-[10px] text-gray-500 mt-4 uppercase tracking-tighter">* เคลียร์บล็อกทั้งหมดเพื่อเรียกบอสออกมา</p>
                 </div>
             </div>
 
@@ -60,7 +60,7 @@
                 <div class="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm border border-gray-600">
                     <h2 id="messageTitle" class="text-2xl md:text-3xl font-bold mb-2 text-white"></h2>
                     <p id="messageText" class="text-lg mb-6 text-gray-300"></p>
-                    <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200">ลุยด่านต่อไป</button>
+                    <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200">ลุยเลเวลถัดไป</button>
                 </div>
             </div>
         </div>
@@ -69,7 +69,7 @@
             <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400">Name: <span id="playerNameDisplay" class="text-blue-400 font-bold">-</span></div>
             <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400 text-right md:text-left">Score: <span id="scoreDisplay" class="text-white font-bold">0</span></div>
             <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400">Lives: <span id="livesDisplay" class="text-red-400 font-bold">3</span></div>
-            <div id="bossShieldContainer" class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400 hidden text-right md:text-left">Shield: <span id="bossShieldDisplay" class="text-yellow-400 font-bold">3/3</span></div>
+            <div id="bossShieldContainer" class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400 hidden text-right md:text-left">Boss Shield: <span id="bossShieldDisplay" class="text-yellow-400 font-bold">3/3</span></div>
         </div>
     </div>
 
@@ -82,6 +82,7 @@
         const messageBox = document.getElementById('messageBox');
         
         let gameActive = false;
+        let animationId = null;
         let score = 0;
         let lives = 3;
         let level = 1;
@@ -100,6 +101,29 @@
         let bossProjectiles = [];
         let bossLives = 3;
         let isWinState = false;
+
+        // Cheat Code Logic
+        let cheatInput = "";
+        window.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+            // Only capture number keys
+            if (e.key >= '0' && e.key <= '9') {
+                cheatInput += e.key;
+                if (cheatInput.includes("1234")) {
+                    cheatInput = "";
+                    if (bossMode && boss) {
+                        boss.hp = 0;
+                        console.log("Cheat Activated: Boss Defeated");
+                    } else if (!bossMode) {
+                        // Kill all bricks if not in boss mode
+                        bricks.forEach(col => col.forEach(b => b.status = 0));
+                        console.log("Cheat Activated: Bricks Cleared");
+                    }
+                }
+                // Keep only last 4 chars
+                if (cheatInput.length > 4) cheatInput = cheatInput.slice(-4);
+            }
+        });
 
         const config = {
             easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
@@ -127,7 +151,7 @@
         function spawnBoss() {
             bossMode = true;
             const baseHp = config[difficulty].bossHp;
-            const currentMaxHp = baseHp + (level * 3);
+            const currentMaxHp = baseHp + (level * 10); 
             
             boss = {
                 x: canvas.width / 2 - 75,
@@ -136,7 +160,7 @@
                 h: 50,
                 hp: currentMaxHp,
                 maxHp: currentMaxHp,
-                dx: 3 + (level * 0.5),
+                dx: 3 + (level * 0.8),
                 lastShot: 0
             };
             bossProjectiles = [];
@@ -146,6 +170,8 @@
         }
 
         function resetGame(fullReset = true) {
+            if (animationId) cancelAnimationFrame(animationId);
+            
             if(fullReset) {
                 level = 1;
                 score = 0;
@@ -161,6 +187,7 @@
             boss = null;
             bossProjectiles = [];
             isWinState = false;
+            cheatInput = "";
             
             document.getElementById('bossShieldContainer').classList.add('hidden');
             document.getElementById('levelIndicator').innerText = `LEVEL ${level}`;
@@ -170,8 +197,8 @@
             balls = [{
                 x: canvas.width / 2,
                 y: canvas.height - 60,
-                dx: (settings.speed + (level * 0.5)) * (Math.random() > 0.5 ? 1 : -1),
-                dy: -(settings.speed + (level * 0.5))
+                dx: (settings.speed + (level * 0.3)) * (Math.random() > 0.5 ? 1 : -1),
+                dy: -(settings.speed + (level * 0.3))
             }];
             initBricks();
             updateUI();
@@ -240,14 +267,14 @@
                 ctx.fillStyle = "#333";
                 ctx.fillRect(canvas.width/2 - hbW/2, 25, hbW, 20);
                 ctx.fillStyle = "#f87171";
-                ctx.fillRect(canvas.width/2 - hbW/2, 25, (boss.hp / boss.maxHp) * hbW, 20);
+                ctx.fillRect(canvas.width/2 - hbW/2, 25, (Math.max(0, boss.hp) / boss.maxHp) * hbW, 20);
 
                 boss.x += boss.dx;
                 if(boss.x < 0 || boss.x + boss.w > canvas.width) boss.dx = -boss.dx;
 
                 const now = Date.now();
                 if(now - boss.lastShot > (1800 - (level * 100))) {
-                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 5 + (level * 0.5) });
+                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 5 + (level * 0.4) });
                     boss.lastShot = now;
                 }
 
@@ -263,10 +290,16 @@
                         bossProjectiles.splice(pi, 1);
                         bossLives--;
                         updateUI();
-                        if(bossLives <= 0) endGame("คุณพ่ายแพ้!", "ลูกไฟของบอสแรงมาก!", false);
+                        if(bossLives <= 0) endGame("คุณพ่ายแพ้!", "เกราะป้องกันพังทลายแล้ว!", false);
                     }
                     if(p.y > canvas.height) bossProjectiles.splice(pi, 1);
                 });
+
+                // Check if boss died (via cheat or ball)
+                if (boss.hp <= 0) {
+                    boss = null;
+                    endGame("บอสพ่ายแพ้!", "บล็อกกำลังฟื้นตัว... เตรียมพร้อมเลเวลถัดไป", true);
+                }
             }
 
             ctx.beginPath();
@@ -292,15 +325,15 @@
                     if(ball.x > paddleX && ball.x < paddleX + paddleWidth) {
                         ball.dy = -Math.abs(ball.dy);
                         let hitPoint = (ball.x - (paddleX + paddleWidth/2)) / (paddleWidth/2);
-                        ball.dx = hitPoint * (config[difficulty].speed + (level * 0.5));
+                        ball.dx = hitPoint * (config[difficulty].speed + (level * 0.4));
                     } else if (ball.y > canvas.height) {
                         lives--;
                         updateUI();
-                        if(lives <= 0) endGame("GAME OVER", "มาลองใหม่อีกครั้งนะ!", false);
+                        if(lives <= 0) endGame("GAME OVER", "เลเวลที่คุณไปถึง: " + level, false);
                         else {
                             ball.x = canvas.width / 2; 
                             ball.y = canvas.height - 60;
-                            ball.dy = -(config[difficulty].speed + (level * 0.5));
+                            ball.dy = -(config[difficulty].speed + (level * 0.4));
                         }
                     }
                 }
@@ -319,32 +352,30 @@
                         boss.hp -= 1;
                         score += 50;
                         updateUI();
-                        if(boss.hp <= 0) {
-                            boss = null;
-                            endGame("บอสแตกพ่าย!", "เตรียมพบกับบอสในด่านถัดไป", true);
-                        }
                     }
                 }
                 ball.x += ball.dx;
                 ball.y += ball.dy;
             });
 
-            requestAnimationFrame(draw);
+            animationId = requestAnimationFrame(draw);
         }
 
         function endGame(title, text, win) {
             gameActive = false;
+            if (animationId) cancelAnimationFrame(animationId);
+            
             isWinState = win;
             document.getElementById('messageTitle').innerText = title;
-            document.getElementById('messageText').innerText = `${text} คะแนน: ${score}`;
+            document.getElementById('messageText').innerText = `${text} | คะแนนรวม: ${score}`;
             messageBox.classList.remove('hidden');
             messageBox.classList.add('flex');
             
             if(win) {
-                restartButton.innerText = "ลุยต่อ Level " + (level + 1);
+                restartButton.innerText = "ลุยเลเวล " + (level + 1);
                 restartButton.className = "w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200";
             } else {
-                restartButton.innerText = "กลับสู่หน้าหลัก";
+                restartButton.innerText = "เริ่มใหม่ทั้งหมด";
                 restartButton.className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-md transition duration-200";
             }
         }
@@ -359,8 +390,7 @@
             messageBox.classList.add('hidden');
             messageBox.classList.remove('flex');
             if(isWinState) {
-                resetGame(false); // level++ อยู่ในนี้แล้ว
-                // เพิ่มคำสั่ง draw() เพื่อเริ่มลูปใหม่เพราะ gameActive ถูกเปลี่ยนเป็น true ใน resetGame แล้ว
+                resetGame(false); 
                 draw();
             } else {
                 startModal.classList.remove('hidden');
