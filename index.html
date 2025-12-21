@@ -17,7 +17,6 @@
             min-height: 100vh;
             margin: 0;
             overflow: hidden;
-            /* ป้องกันการลากเพื่อรีเฟรชบนมือถือ */
             overscroll-behavior-y: contain;
         }
         canvas {
@@ -25,7 +24,7 @@
             display: block;
             border-radius: 0.5rem;
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-            touch-action: none; /* สำคัญ: ปิด touch actions ปกติของเบราว์เซอร์บน canvas */
+            touch-action: none;
         }
     </style>
 </head>
@@ -61,7 +60,7 @@
                 <div class="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm border border-gray-600">
                     <h2 id="messageTitle" class="text-2xl md:text-3xl font-bold mb-2 text-white"></h2>
                     <p id="messageText" class="text-lg mb-6 text-gray-300"></p>
-                    <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200">เล่นต่อ / เริ่มใหม่</button>
+                    <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200">ลุยด่านต่อไป</button>
                 </div>
             </div>
         </div>
@@ -75,7 +74,6 @@
     </div>
 
     <script>
-        // Game Engine Variables
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const startButton = document.getElementById('startButton');
@@ -89,7 +87,7 @@
         let level = 1;
         let playerName = "";
         let paddleX;
-        const paddleWidth = 140; // เพิ่มขนาดไม้พายเล็กน้อยให้เล่นง่ายขึ้นบนมือถือ
+        const paddleWidth = 140;
         const paddleHeight = 15;
         const ballRadius = 8;
         
@@ -97,11 +95,11 @@
         let bricks = [];
         let difficulty = 'medium';
         
-        // Boss System
         let bossMode = false;
         let boss = null;
         let bossProjectiles = [];
         let bossLives = 3;
+        let isWinState = false; // ตัวแปรใหม่สำหรับเช็คว่าชนะบอสหรือไม่
 
         const config = {
             easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
@@ -129,7 +127,7 @@
         function spawnBoss() {
             bossMode = true;
             const baseHp = config[difficulty].bossHp;
-            const currentMaxHp = baseHp + (level * 2);
+            const currentMaxHp = baseHp + (level * 3); // บอสเลือดเยอะขึ้นตามเลเวล
             
             boss = {
                 x: canvas.width / 2 - 75,
@@ -162,6 +160,8 @@
             bossMode = false;
             boss = null;
             bossProjectiles = [];
+            isWinState = false;
+            
             document.getElementById('bossShieldContainer').classList.add('hidden');
             document.getElementById('levelIndicator').innerText = `LEVEL ${level}`;
             document.getElementById('playerNameDisplay').innerText = playerName;
@@ -170,11 +170,12 @@
             balls = [{
                 x: canvas.width / 2,
                 y: canvas.height - 60,
-                dx: (settings.speed + level) * (Math.random() > 0.5 ? 1 : -1),
-                dy: -(settings.speed + level)
+                dx: (settings.speed + (level * 0.5)) * (Math.random() > 0.5 ? 1 : -1),
+                dy: -(settings.speed + (level * 0.5))
             }];
             initBricks();
             updateUI();
+            gameActive = true;
         }
 
         function updateUI() {
@@ -183,27 +184,19 @@
             document.getElementById('bossShieldDisplay').innerText = bossLives + "/3";
         }
 
-        // --- Touch & Mouse Interaction ---
         function handleInput(clientX) {
             const rect = canvas.getBoundingClientRect();
-            // คำนวณตำแหน่งโดยเทียบกับอัตราส่วนของ Canvas จริง
             const scaleX = canvas.width / rect.width;
             paddleX = (clientX - rect.left) * scaleX - paddleWidth / 2;
-            
             if(paddleX < 0) paddleX = 0;
             if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
         }
 
-        canvas.addEventListener('mousemove', (e) => {
-            handleInput(e.clientX);
-        });
-
-        // Touch Listeners
+        canvas.addEventListener('mousemove', (e) => handleInput(e.clientX));
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             handleInput(e.touches[0].clientX);
         }, { passive: false });
-
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             handleInput(e.touches[0].clientX);
@@ -213,7 +206,6 @@
             if(!gameActive) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw Bricks
             if(!bossMode) {
                 let bricksLeft = 0;
                 bricks.forEach((col, c) => {
@@ -225,7 +217,6 @@
                             const offsetLeft = 35;
                             b.x = (c * (b.w + padding)) + offsetLeft;
                             b.y = (r * (b.h + padding)) + offsetTop;
-                            
                             ctx.beginPath();
                             ctx.roundRect(b.x, b.y, b.w, b.h, 4);
                             ctx.fillStyle = `hsl(${200 + (r*25)}, 70%, 50%)`;
@@ -235,9 +226,7 @@
                     });
                 });
                 if(bricksLeft === 0) spawnBoss();
-            } 
-            // Draw Boss
-            else if(boss) {
+            } else if(boss) {
                 ctx.beginPath();
                 ctx.roundRect(boss.x, boss.y, boss.w, boss.h, 10);
                 ctx.fillStyle = "#ef4444";
@@ -268,20 +257,18 @@
                     ctx.fillStyle = "#fbbf24";
                     ctx.fill();
                     ctx.closePath();
-
                     p.y += p.dy;
 
                     if(p.y > canvas.height - paddleHeight - 25 && p.x > paddleX && p.x < paddleX + paddleWidth) {
                         bossProjectiles.splice(pi, 1);
                         bossLives--;
                         updateUI();
-                        if(bossLives <= 0) endGame("คุณพ่ายแพ้!", "ลูกไฟของบอสแรงมาก!");
+                        if(bossLives <= 0) endGame("คุณพ่ายแพ้!", "ลูกไฟของบอสแรงมาก!", false);
                     }
                     if(p.y > canvas.height) bossProjectiles.splice(pi, 1);
                 });
             }
 
-            // Draw Paddle
             ctx.beginPath();
             ctx.roundRect(paddleX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight, 8);
             ctx.fillStyle = "#3b82f6";
@@ -291,7 +278,6 @@
             ctx.closePath();
             ctx.shadowBlur = 0;
 
-            // Ball Physics
             balls.forEach((ball, bi) => {
                 ctx.beginPath();
                 ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI*2);
@@ -306,15 +292,15 @@
                     if(ball.x > paddleX && ball.x < paddleX + paddleWidth) {
                         ball.dy = -Math.abs(ball.dy);
                         let hitPoint = (ball.x - (paddleX + paddleWidth/2)) / (paddleWidth/2);
-                        ball.dx = hitPoint * (config[difficulty].speed + level);
+                        ball.dx = hitPoint * (config[difficulty].speed + (level * 0.5));
                     } else if (ball.y > canvas.height) {
                         lives--;
                         updateUI();
-                        if(lives <= 0) endGame("GAME OVER", "มาลองใหม่อีกครั้งนะ!");
+                        if(lives <= 0) endGame("GAME OVER", "มาลองใหม่อีกครั้งนะ!", false);
                         else {
                             ball.x = canvas.width / 2; 
                             ball.y = canvas.height - 60;
-                            ball.dy = -(config[difficulty].speed + level);
+                            ball.dy = -(config[difficulty].speed + (level * 0.5));
                         }
                     }
                 }
@@ -322,10 +308,8 @@
                 if(!bossMode) {
                     bricks.forEach(col => {
                         col.forEach(b => {
-                            if(b.status === 1) {
-                                if(ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
-                                    ball.dy = -ball.dy; b.status = 0; score += 10; updateUI();
-                                }
+                            if(b.status === 1 && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+                                ball.dy = -ball.dy; b.status = 0; score += 10; updateUI();
                             }
                         });
                     });
@@ -337,11 +321,10 @@
                         updateUI();
                         if(boss.hp <= 0) {
                             boss = null;
-                            endGame("บอสแตกพ่าย!", "เตรียมพบกับบอสในด่านถัดไป");
+                            endGame("บอสแตกพ่าย!", "เตรียมพบกับบอสในด่านถัดไป", true);
                         }
                     }
                 }
-
                 ball.x += ball.dx;
                 ball.y += ball.dy;
             });
@@ -349,23 +332,25 @@
             requestAnimationFrame(draw);
         }
 
-        function endGame(title, text) {
+        function endGame(title, text, win) {
             gameActive = false;
+            isWinState = win;
             document.getElementById('messageTitle').innerText = title;
             document.getElementById('messageText').innerText = `${text} คะแนน: ${score}`;
             messageBox.classList.remove('hidden');
             messageBox.classList.add('flex');
             
-            if(title === "บอสแตกพ่าย!") {
+            if(win) {
                 restartButton.innerText = "ลุยต่อ Level " + (level + 1);
+                restartButton.className = "w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition duration-200";
             } else {
                 restartButton.innerText = "กลับสู่หน้าหลัก";
+                restartButton.className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-md transition duration-200";
             }
         }
 
         startButton.onclick = () => {
             startModal.classList.add('hidden');
-            gameActive = true;
             resetGame(true);
             draw();
         };
@@ -373,10 +358,11 @@
         restartButton.onclick = () => {
             messageBox.classList.add('hidden');
             messageBox.classList.remove('flex');
-            const isWin = document.getElementById('messageTitle').innerText === "บอสแตกพ่าย!";
-            if(isWin) {
-                gameActive = true;
+            if(isWinState) {
                 resetGame(false);
+                // ไม่ต้องเรียก draw() ใหม่เพราะ requestAnimationFrame ยังทำงานอยู่ตราบใดที่ gameActive เป็น true
+                // แต่ใน endGame เราตั้ง gameActive = false ดังนั้นต้องเปลี่ยนกลับ
+                gameActive = true;
             } else {
                 startModal.classList.remove('hidden');
             }
