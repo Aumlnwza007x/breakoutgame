@@ -9,9 +9,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection, query, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        // Firebase Config (Provided by environment)
+        // Firebase Config
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
@@ -44,11 +44,18 @@
         ];
 
         // --- AUTH & MULTIPLAYER ---
-        async function initGame() {
-            await signInAnonymously(auth);
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
             onAuthStateChanged(auth, (u) => {
                 user = u;
-                if(user) document.getElementById('userIdDisplay').innerText = `ID: ${user.uid.slice(0,6)}`;
+                if(user) {
+                    const idDisplay = document.getElementById('userIdDisplay');
+                    if(idDisplay) idDisplay.innerText = `ID: ${user.uid.slice(0,6)}`;
+                }
             });
         }
 
@@ -85,13 +92,14 @@
                     gameState = doc.data();
                     renderPlayers();
                 }
-            });
+            }, (err) => console.error(err));
             document.getElementById('currentRoomId').innerText = `ROOM: ${roomId}`;
         }
 
         // --- UI & CORE LOGIC ---
         function renderPlayers() {
             const list = document.getElementById('playerList');
+            if(!list) return;
             list.innerHTML = '';
             Object.entries(gameState.players).forEach(([id, p]) => {
                 list.innerHTML += `<div class="text-xs ${id === user?.uid ? 'text-blue-400 font-bold' : ''}">${p.name}: ${p.hp} HP</div>`;
@@ -107,6 +115,7 @@
 
         function renderShop() {
             const shop = document.getElementById('unitShop');
+            if(!shop) return;
             shop.innerHTML = '';
             for(let i=0; i<5; i++) {
                 const unit = unitTypes[Math.floor(Math.random() * unitTypes.length)];
@@ -136,18 +145,22 @@
         }
 
         function updateStats() {
-            document.getElementById('tftGold').innerText = localPlayer.gold;
-            document.getElementById('shopGoldDisplay').innerText = `${localPlayer.gold}G`;
-            document.getElementById('tftLevel').innerText = localPlayer.level;
+            const goldEl = document.getElementById('tftGold');
+            const shopGoldEl = document.getElementById('shopGoldDisplay');
+            const levelEl = document.getElementById('tftLevel');
+            if(goldEl) goldEl.innerText = localPlayer.gold;
+            if(shopGoldEl) shopGoldEl.innerText = `${localPlayer.gold}G`;
+            if(levelEl) levelEl.innerText = localPlayer.level;
         }
 
         // --- DRAG & DROP & SELECTION ---
         let draggedUnit = null;
-        let dragSource = null; // 'bench' or 'board'
+        let dragSource = null;
         let dragIndex = null;
 
         function renderBench() {
             const benchEl = document.getElementById('playerBench');
+            if(!benchEl) return;
             benchEl.innerHTML = '';
             localPlayer.bench.forEach((unit, i) => {
                 const slot = document.createElement('div');
@@ -156,8 +169,9 @@
                     slot.innerHTML = `<div class="unit-item ${unit.color} cursor-grab active:cursor-grabbing" draggable="true">
                         <i class="fas ${unit.icon} text-xl"></i>
                     </div>`;
-                    slot.querySelector('.unit-item').onmousedown = () => selectUnit(unit, 'bench', i);
-                    slot.querySelector('.unit-item').ondragstart = () => {
+                    const item = slot.querySelector('.unit-item');
+                    item.onmousedown = () => selectUnit(unit, 'bench', i);
+                    item.ondragstart = () => {
                         draggedUnit = unit;
                         dragSource = 'bench';
                         dragIndex = i;
@@ -171,14 +185,16 @@
 
         function renderBoard() {
             const boardEl = document.getElementById('playerField');
+            if(!boardEl) return;
             boardEl.innerHTML = '';
             localPlayer.board.forEach((unit, i) => {
                 const hex = document.createElement('div');
                 hex.className = `hex-cell border-2 ${unit ? 'border-blue-500/30' : 'border-transparent'}`;
                 if(unit) {
                     hex.innerHTML = `<div class="unit-item ${unit.color}" draggable="true"><i class="fas ${unit.icon} text-xl"></i></div>`;
-                    hex.querySelector('.unit-item').onmousedown = () => selectUnit(unit, 'board', i);
-                    hex.querySelector('.unit-item').ondragstart = () => {
+                    const item = hex.querySelector('.unit-item');
+                    item.onmousedown = () => selectUnit(unit, 'board', i);
+                    item.ondragstart = () => {
                         draggedUnit = unit;
                         dragSource = 'board';
                         dragIndex = i;
@@ -192,15 +208,10 @@
 
         function handleDrop(targetType, targetIdx) {
             if(!draggedUnit) return;
-            
-            // Remove from source
             if(dragSource === 'bench') localPlayer.bench[dragIndex] = null;
             else localPlayer.board[dragIndex] = null;
-
-            // Add to target
             if(targetType === 'bench') localPlayer.bench[targetIdx] = draggedUnit;
             else localPlayer.board[targetIdx] = draggedUnit;
-
             draggedUnit = null;
             renderBench();
             renderBoard();
@@ -208,8 +219,11 @@
 
         function selectUnit(unit, type, index) {
             localPlayer.selectedUnit = { unit, type, index };
-            document.getElementById('sellBtn').classList.remove('hidden');
-            document.getElementById('sellBtn').innerHTML = `<i class="fas fa-coins mr-1"></i> Sell ${unit.name} (+${unit.cost}G)`;
+            const sellBtn = document.getElementById('sellBtn');
+            if(sellBtn) {
+                sellBtn.classList.remove('hidden');
+                sellBtn.innerHTML = `<i class="fas fa-coins mr-1"></i> Sell ${unit.name} (+${unit.cost}G)`;
+            }
         }
 
         window.sellUnit = () => {
@@ -218,7 +232,6 @@
             localPlayer.gold += unit.cost;
             if(type === 'bench') localPlayer.bench[index] = null;
             else localPlayer.board[index] = null;
-            
             localPlayer.selectedUnit = null;
             document.getElementById('sellBtn').classList.add('hidden');
             renderBench();
@@ -226,18 +239,23 @@
             updateStats();
         };
 
+        // --- VIEW CONTROLS ---
+        window.showTFTLobby = () => {
+            document.getElementById('homeView').classList.add('hidden');
+            document.getElementById('lobbyView').classList.remove('hidden');
+            document.getElementById('navActions').classList.remove('hidden');
+        };
+
         function showTFTView() {
             document.getElementById('lobbyView').classList.add('hidden');
             document.getElementById('tftView').classList.remove('hidden');
-            document.getElementById('navActions').classList.remove('hidden');
             renderShop();
             renderBench();
             renderBoard();
             updateStats();
         }
 
-        window.onload = initGame;
-
+        window.onload = initAuth;
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
@@ -252,29 +270,66 @@
         .hex-cell:hover { background: rgba(59, 130, 246, 0.2); }
         .unit-card { border: 1px solid #334155; }
         .unit-item { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5); }
     </style>
 </head>
 <body class="min-h-screen">
 
     <!-- NAVIGATION -->
     <nav class="p-4 flex justify-between items-center glass sticky top-0 z-50">
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 cursor-pointer" onclick="location.reload()">
             <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
                 <i class="fas fa-chess-knight text-white"></i>
             </div>
-            <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">TACTICS</span></h1>
+            <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
         </div>
         <div id="navActions" class="hidden flex items-center gap-4">
             <span id="userIdDisplay" class="text-[10px] text-slate-500 font-mono"></span>
             <span id="currentRoomId" class="text-xs font-bold text-yellow-500"></span>
             <button onclick="location.reload()" class="text-sm text-slate-400 hover:text-white transition-colors">
-                <i class="fas fa-home mr-1"></i> กลับเมนู
+                <i class="fas fa-home mr-1"></i> เมนูหลัก
             </button>
         </div>
     </nav>
 
+    <!-- HOME VIEW (โครงสร้างเดิม) -->
+    <main id="homeView" class="container mx-auto px-6 py-12">
+        <div class="text-center mb-16">
+            <h2 class="text-5xl font-black mb-4 uppercase tracking-tighter">ยินดีต้อนรับสู่ AUM HUB</h2>
+            <p class="text-slate-400">เลือกโหมดเกมที่ต้องการเล่นด้านล่าง</p>
+        </div>
+
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            <!-- TFT Game Card (New Version) -->
+            <div onclick="showTFTLobby()" class="glass p-6 rounded-3xl border-2 border-blue-500/20 card-hover cursor-pointer relative overflow-hidden group">
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <i class="fas fa-bolt text-8xl text-blue-500"></i>
+                </div>
+                <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
+                    <i class="fas fa-chess-board text-2xl text-white"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Tactical Online</h3>
+                <p class="text-slate-400 text-sm mb-6">เล่น TFT ออนไลน์กับเพื่อนๆ วางกลยุทธ์ และจัดทีมเพื่อเป็นที่หนึ่ง</p>
+                <div class="flex items-center text-blue-400 font-bold text-sm">
+                    เข้าเล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i>
+                </div>
+                <div class="absolute top-4 right-4 bg-yellow-500 text-black text-[10px] font-bold px-2 py-1 rounded-full uppercase">NEW</div>
+            </div>
+
+            <!-- Placeholder for other games -->
+            <div class="glass p-6 rounded-3xl border-2 border-slate-700/50 opacity-60 grayscale cursor-not-allowed">
+                <div class="w-14 h-14 bg-slate-700 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-gamepad text-2xl text-slate-400"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Coming Soon</h3>
+                <p class="text-slate-400 text-sm mb-6">โหมดเกมอื่นๆ กำลังตามมาในเร็วๆ นี้ ติดตามชมได้เลย</p>
+            </div>
+        </div>
+    </main>
+
     <!-- MULTIPLAYER LOBBY -->
-    <main id="lobbyView" class="container mx-auto px-6 py-20 text-center">
+    <main id="lobbyView" class="hidden container mx-auto px-6 py-20 text-center">
         <h2 class="text-5xl font-black mb-12 uppercase tracking-tighter">Tactical Online</h2>
         
         <div class="max-w-md mx-auto space-y-4">
@@ -295,7 +350,7 @@
         </div>
     </main>
 
-    <!-- TFT GAME VIEW -->
+    <!-- TFT GAME VIEW (NEW VERSION) -->
     <main id="tftView" class="hidden container mx-auto px-4 py-6">
         <div class="grid lg:grid-cols-4 gap-6">
             
@@ -320,22 +375,15 @@
                     <button class="bg-red-600 px-4 py-1 rounded text-[10px] font-bold uppercase">Ready</button>
                 </div>
 
-                <!-- Field -->
                 <div class="glass aspect-[4/3] rounded-3xl p-6 flex flex-col justify-end">
                     <div class="hex-grid opacity-30 mb-8" id="enemyField">
-                        <!-- Enemy Field (Display Only) -->
                         <div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div>
                         <div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div>
                     </div>
-                    <div class="hex-grid" id="playerField">
-                        <!-- Player Field Generated by JS -->
-                    </div>
+                    <div class="hex-grid" id="playerField"></div>
                 </div>
 
-                <!-- Bench -->
-                <div class="glass p-4 rounded-2xl flex justify-center gap-2" id="playerBench">
-                    <!-- Bench Generated by JS -->
-                </div>
+                <div class="glass p-4 rounded-2xl flex justify-center gap-2" id="playerBench"></div>
             </div>
 
             <!-- RIGHT: Shop -->
