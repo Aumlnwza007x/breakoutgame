@@ -10,24 +10,38 @@
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
         body { font-family: 'Sarabun', sans-serif; background-color: #0f172a; color: #e2e8f0; margin: 0; overflow-x: hidden; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .card-hover { transition: all 0.3s ease; }
-        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4); border-color: rgba(59, 130, 246, 0.5); }
         
-        /* TFT Specific Styles */
+        /* Game Specific Styles */
+        canvas#gameCanvas {
+            background: #000;
+            display: block;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            cursor: crosshair;
+            touch-action: none;
+        }
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            margin-bottom: 0.25rem;
+            background-color: #1e293b;
+            border-radius: 0.375rem;
+        }
+        .leaderboard-item.highlight {
+            background-color: #334155;
+            border: 1px solid #3b82f6;
+        }
         .hex-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .hex-cell { 
             aspect-ratio: 1/1; background: rgba(51, 65, 85, 0.4); 
             clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
         }
-        
-        /* Breakout Specific Styles */
-        #breakoutCanvas { background: #000; border-radius: 0.5rem; touch-action: none; }
     </style>
 </head>
 <body>
 
-    <!-- NAVIGATION -->
+    <!-- NAV -->
     <nav class="p-4 flex justify-between items-center glass sticky top-0 z-[100]">
         <div class="flex items-center gap-3 cursor-pointer" onclick="showView('home')">
             <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
@@ -35,8 +49,7 @@
             </div>
             <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
         </div>
-        <div id="navActions" class="flex items-center gap-4">
-            <span id="userIdDisplay" class="hidden md:inline text-[10px] text-slate-500 font-mono"></span>
+        <div class="flex items-center gap-4">
             <button onclick="showView('home')" class="text-sm text-slate-400 hover:text-white transition-colors">
                 <i class="fas fa-home mr-1"></i> หน้าหลัก
             </button>
@@ -47,355 +60,441 @@
     <main id="view-home" class="container mx-auto px-6 py-12">
         <div class="text-center mb-16">
             <h2 class="text-5xl font-black mb-4 uppercase tracking-tighter">Game Center</h2>
-            <p class="text-slate-400">ยินดีต้อนรับสู่ศูนย์รวมเกมของ AUM เลือกเกมที่ต้องการด้านล่าง</p>
+            <p class="text-slate-400">เลือกเกมที่ต้องการเล่นด้านล่าง</p>
         </div>
 
-        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <!-- TFT Card -->
-            <div onclick="showView('tft-lobby')" class="glass p-6 rounded-3xl border-2 border-blue-500/20 card-hover cursor-pointer relative overflow-hidden group">
-                <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
-                    <i class="fas fa-chess-board text-2xl text-white"></i>
+        <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <!-- TFT Portal -->
+            <div onclick="showView('tft-lobby')" class="glass p-8 rounded-3xl border-2 border-blue-500/20 hover:border-blue-500/50 transition-all cursor-pointer group">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-chess-board text-3xl text-white"></i>
                 </div>
                 <h3 class="text-2xl font-bold mb-2">Tactical Online</h3>
-                <p class="text-slate-400 text-sm mb-6">เกมวางแผนการรบแบบ Auto-Battler ออนไลน์กับเพื่อนๆ</p>
-                <div class="flex items-center text-blue-400 font-bold text-sm">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i></div>
-                <div class="absolute top-4 right-4 bg-yellow-500 text-black text-[10px] font-bold px-2 py-1 rounded-full uppercase">Update</div>
+                <p class="text-slate-400 text-sm mb-6">เกมวางแผนรบออนไลน์ (กำลังพัฒนา)</p>
+                <div class="text-blue-400 font-bold">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2"></i></div>
             </div>
 
-            <!-- Breakout Card -->
-            <div onclick="showView('breakout')" class="glass p-6 rounded-3xl border-2 border-red-500/20 card-hover cursor-pointer relative overflow-hidden group">
-                <div class="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
-                    <i class="fas fa-th text-2xl text-white"></i>
+            <!-- Breakout Portal -->
+            <div onclick="showView('breakout')" class="glass p-8 rounded-3xl border-2 border-red-500/20 hover:border-red-500/50 transition-all cursor-pointer group">
+                <div class="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-th text-3xl text-white"></i>
                 </div>
                 <h3 class="text-2xl font-bold mb-2">Breakout Boss</h3>
-                <p class="text-slate-400 text-sm mb-6">ทำลายบล็อกและเอาชนะบอสในตำนานเพื่อความอยู่รอด</p>
-                <div class="flex items-center text-red-400 font-bold text-sm">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i></div>
+                <p class="text-slate-400 text-sm mb-6">เกมทำลายบล็อกสู้บอสและเก็บของ</p>
+                <div class="text-red-400 font-bold">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2"></i></div>
             </div>
         </div>
     </main>
 
     <!-- VIEW: TFT LOBBY -->
     <main id="view-tft-lobby" class="hidden container mx-auto px-6 py-20 text-center">
-        <h2 class="text-4xl font-black mb-12 uppercase">Tactical Lobby</h2>
+        <h2 class="text-4xl font-black mb-12">Tactical Lobby</h2>
         <div class="max-w-md mx-auto space-y-4">
-            <button onclick="createTFTGame()" class="w-full bg-blue-600 hover:bg-blue-700 p-6 rounded-2xl font-bold text-xl transition-all">สร้างห้องใหม่</button>
-            <input type="text" id="tftRoomInput" placeholder="รหัสห้อง 6 หลัก" class="w-full bg-slate-800 border border-slate-700 p-6 rounded-2xl text-center font-mono text-xl uppercase outline-none focus:border-blue-500">
-            <button onclick="joinTFTGame()" class="w-full bg-slate-700 hover:bg-slate-600 p-4 rounded-2xl font-bold transition-all">เข้าร่วม</button>
+            <button onclick="showView('tft-game')" class="w-full bg-blue-600 p-6 rounded-2xl font-bold text-xl">สร้างห้องใหม่</button>
+            <input type="text" placeholder="รหัสห้อง" class="w-full bg-slate-800 border border-slate-700 p-6 rounded-2xl text-center">
+            <button onclick="showView('tft-game')" class="w-full bg-slate-700 p-4 rounded-2xl font-bold">เข้าร่วม</button>
         </div>
     </main>
 
     <!-- VIEW: TFT GAME -->
     <main id="view-tft-game" class="hidden container mx-auto px-4 py-6">
-        <div class="grid lg:grid-cols-4 gap-6">
-            <div class="glass p-4 rounded-2xl h-fit">
-                <div id="tftRoomIdDisplay" class="text-xs font-bold text-yellow-500 mb-4 uppercase"></div>
-                <h3 class="text-[10px] text-slate-500 uppercase mb-2">Players</h3>
-                <div id="tftPlayerList" class="space-y-2"></div>
-                <button id="tftSellBtn" onclick="sellTFTUnit()" class="hidden mt-4 w-full bg-red-500/20 text-red-400 border border-red-500/50 p-2 rounded-lg text-xs font-bold">Sell Unit</button>
-            </div>
-            <div class="lg:col-span-2 space-y-4">
-                <div class="glass p-4 rounded-2xl flex justify-between">
-                    <div class="flex gap-4">
-                        <span class="text-yellow-500 font-bold"><i class="fas fa-coins"></i> <span id="tftGold">50</span></span>
-                        <span class="text-blue-400 font-bold">Lv.<span id="tftLevel">1</span></span>
-                    </div>
-                    <div class="text-xs text-slate-400 uppercase tracking-widest pt-1">Preparation</div>
-                </div>
-                <div class="glass aspect-[4/3] rounded-3xl p-6 flex flex-col justify-end relative">
-                    <div class="hex-grid opacity-20 mb-8" id="tftEnemyField"></div>
-                    <div class="hex-grid" id="tftPlayerField"></div>
-                </div>
-                <div class="glass p-4 rounded-2xl flex justify-center gap-2" id="tftBench"></div>
-            </div>
-            <div class="glass p-6 rounded-2xl h-fit">
-                <div class="flex justify-between items-center mb-4"><span class="font-bold text-xs uppercase text-slate-400">Shop</span></div>
-                <div id="tftShop" class="space-y-2"></div>
-                <div class="grid grid-cols-2 gap-2 mt-4">
-                    <button onclick="rerollTFT()" class="bg-slate-700 p-2 rounded text-[10px] font-bold">Reroll (2G)</button>
-                    <button class="bg-slate-700 p-2 rounded text-[10px] font-bold">Buy XP (4G)</button>
-                </div>
-            </div>
+        <div class="glass p-6 rounded-3xl text-center">
+            <h2 class="text-xl font-bold mb-4">Tactical Game Arena</h2>
+            <div class="hex-grid max-w-lg mx-auto mb-8" id="tftField"></div>
+            <button onclick="showView('home')" class="bg-slate-700 px-6 py-2 rounded-lg">ออกจากการแข่งขัน</button>
         </div>
     </main>
 
-    <!-- VIEW: BREAKOUT GAME -->
-    <main id="view-breakout" class="hidden container mx-auto px-4 py-8 flex flex-col items-center">
-        <div class="flex justify-between w-full max-w-3xl mb-4 px-2">
-            <h2 id="boLevelDisplay" class="font-bold text-blue-400">LEVEL 1</h2>
+    <!-- VIEW: BREAKOUT GAME (Integrated) -->
+    <main id="view-breakout" class="hidden relative min-h-screen p-4 flex flex-col items-center">
+        <div class="w-full max-w-3xl flex justify-between items-center mb-4 glass p-4 rounded-xl">
             <div class="flex gap-4">
-                <span class="text-sm">Score: <span id="boScore">0</span></span>
-                <span class="text-sm">Lives: <span id="boLives" class="text-red-400">3</span></span>
+                <div class="text-sm">ผู้เล่น: <span id="playerNameDisplay" class="text-blue-400 font-bold">-</span></div>
+                <div class="text-sm">คะแนน: <span id="scoreDisplay" class="text-yellow-400 font-bold">0</span></div>
+                <div class="text-sm">ชีวิต: <span id="livesDisplay" class="text-red-400 font-bold">3</span></div>
             </div>
+            <button onclick="exitGame()" class="text-xs bg-red-500/20 text-red-400 px-3 py-1 rounded-full hover:bg-red-500/40">ออก</button>
         </div>
-        <div class="relative w-full flex justify-center group">
-            <canvas id="breakoutCanvas" width="800" height="600" class="w-full h-auto max-w-3xl border border-slate-700"></canvas>
-            
-            <!-- Breakout Modals -->
-            <div id="boStartModal" class="absolute inset-0 bg-black/80 flex items-center justify-center z-10 p-4 rounded-lg">
-                <div class="glass p-8 rounded-2xl text-center max-w-sm w-full">
-                    <h2 class="text-2xl font-bold mb-4">Breakout: Boss Edition</h2>
-                    <input type="text" id="boNameInput" placeholder="ชื่อของคุณ" class="w-full bg-slate-700 p-3 rounded-lg mb-4 outline-none">
-                    <button onclick="startBreakout()" class="w-full bg-blue-600 py-3 rounded-lg font-bold shadow-lg shadow-blue-500/30">เริ่มเล่นเลย</button>
+
+        <div class="relative w-full max-w-3xl">
+            <canvas id="gameCanvas" width="800" height="600" class="w-full h-auto"></canvas>
+
+            <!-- Start Game Modal -->
+            <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black/80 rounded-lg z-10 p-4">
+                <div class="bg-slate-800 p-6 rounded-2xl shadow-2xl text-center w-full max-w-sm border border-slate-700">
+                    <h2 class="text-2xl font-bold mb-2">Breakout Boss</h2>
+                    <p class="mb-4 text-slate-400 text-sm">ใส่ชื่อและเลือกความยาก</p>
+                    <input type="text" id="nameInput" placeholder="ชื่อของคุณ" class="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 mb-3 outline-none focus:border-blue-500">
+                    <select id="difficultySelect" class="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 mb-4 outline-none">
+                        <option value="easy">ง่าย</option>
+                        <option value="medium" selected>ปานกลาง</option>
+                        <option value="hard">ยาก</option>
+                    </select>
+                    <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all mb-6">เริ่มเกม</button>
+                    
+                    <div class="text-left">
+                        <h3 class="text-sm font-bold text-slate-500 uppercase mb-2">อันดับผู้เล่น</h3>
+                        <div id="leaderboardList" class="space-y-1 text-xs max-h-32 overflow-y-auto">
+                            <!-- Leaderboard content -->
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div id="boMsgBox" class="absolute inset-0 bg-black/90 hidden flex-col items-center justify-center z-20 p-4 rounded-lg">
-                <h2 id="boMsgTitle" class="text-3xl font-bold mb-2"></h2>
-                <p id="boMsgText" class="text-slate-400 mb-6"></p>
-                <button id="boRestartBtn" class="w-full max-w-xs bg-green-600 py-3 rounded-lg font-bold">ตกลง</button>
+            <!-- Message Box -->
+            <div id="messageBox" class="absolute inset-0 hidden items-center justify-center bg-black/80 rounded-lg z-20">
+                <div class="bg-slate-800 p-8 rounded-2xl text-center border border-slate-700">
+                    <h2 id="messageTitle" class="text-3xl font-bold mb-2"></h2>
+                    <p id="messageText" class="text-lg text-slate-400 mb-6"></p>
+                    <button id="restartButton" class="bg-green-600 px-8 py-3 rounded-xl font-bold">เล่นอีกครั้ง</button>
+                </div>
             </div>
         </div>
     </main>
 
+    <!-- Firebase SDKs -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- GLOBAL APP LOGIC ---
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'aum-hub-portal';
 
-        let user = null;
+        // --- Core Navigation ---
         window.showView = (viewName) => {
-            document.querySelectorAll('main').forEach(m => m.classList.add('hidden'));
+            document.querySelectorAll('main').forEach(v => v.classList.add('hidden'));
             const target = document.getElementById(`view-${viewName}`);
-            if(target) target.classList.remove('hidden');
-            
-            // Stop any active games
-            if(viewName !== 'breakout') stopBreakout();
+            if (target) {
+                target.classList.remove('hidden');
+                if (viewName === 'breakout') {
+                    // Reset breakout modal view
+                    document.getElementById('startModal').classList.remove('hidden');
+                    document.getElementById('messageBox').classList.add('hidden');
+                    fetchLeaderboard();
+                } else {
+                    gameStarted = false; // Stop game loop if leaving
+                }
+                if (viewName === 'tft-game') renderTFTGrid();
+            }
         };
 
-        async function init() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
-            }
-            onAuthStateChanged(auth, (u) => {
-                user = u;
-                if(user) document.getElementById('userIdDisplay').innerText = `ID: ${user.uid.slice(0,6)}`;
-            });
+        window.exitGame = () => {
+            gameStarted = false;
+            clearInterval(speedIncreaseTimer);
+            clearInterval(powerupTimer);
+            if (bossAttackTimer) clearInterval(bossAttackTimer);
             showView('home');
-        }
-
-        // --- TFT LOGIC ---
-        let localTFT = { gold: 50, level: 1, bench: Array(9).fill(null), board: Array(14).fill(null), selected: null };
-        const unitTypes = [
-            { name: "Knight", cost: 1, icon: "fa-shield-halved", color: "text-blue-400", bg: "bg-blue-500/20" },
-            { name: "Archer", cost: 2, icon: "fa-bullseye", color: "text-green-400", bg: "bg-green-500/20" },
-            { name: "Mage", cost: 3, icon: "fa-wand-sparkles", color: "text-purple-400", bg: "bg-purple-500/20" }
-        ];
-
-        window.createTFTGame = async () => {
-            const id = Math.random().toString(36).substring(7).toUpperCase();
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', id), {
-                host: user.uid,
-                players: { [user.uid]: { name: "Player 1", hp: 100 } }
-            });
-            startTFT(id);
         };
 
-        window.joinTFTGame = async () => {
-            const id = document.getElementById('tftRoomInput').value.toUpperCase();
-            if(!id) return;
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', id), {
-                [`players.${user.uid}`]: { name: "Player 2", hp: 100 }
-            });
-            startTFT(id);
+        // --- Breakout Game Logic ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const livesDisplay = document.getElementById('livesDisplay');
+        const nameInput = document.getElementById('nameInput');
+        const difficultySelect = document.getElementById('difficultySelect');
+        const startButton = document.getElementById('startButton');
+        const startModal = document.getElementById('startModal');
+        const messageBox = document.getElementById('messageBox');
+        const messageTitle = document.getElementById('messageTitle');
+        const messageText = document.getElementById('messageText');
+        const restartButton = document.getElementById('restartButton');
+        const leaderboardList = document.getElementById('leaderboardList');
+        const playerNameDisplay = document.getElementById('playerNameDisplay');
+
+        let gameStarted = false;
+        let playerName = 'Anonymous';
+        let score = 0;
+        let lives = 3;
+        let userId = null;
+        let lastFrameTime = 0;
+        let speedIncreaseTimer, powerupTimer, bossAttackTimer;
+        let bossMode = false;
+        let tempMessage = null;
+        let tempMessageTimer = null;
+
+        // Settings
+        const ballRadius = 10;
+        const paddleHeight = 12;
+        const paddleWidth = 100;
+        let paddleX = (canvas.width - paddleWidth) / 2;
+        let balls = [];
+        let bricks = [];
+        let bricksLeft = 0;
+        let powerups = [];
+        let boss = { x: 400, y: 80, width: 160, height: 60, health: 10, maxHealth: 10, dx: 3 };
+        let bossAttackProjectiles = [];
+
+        const diffSettings = {
+            easy: { speed: 4, rows: 4, cols: 6, mult: 1 },
+            medium: { speed: 5, rows: 5, cols: 8, mult: 2 },
+            hard: { speed: 7, rows: 6, cols: 10, mult: 3 }
         };
 
-        function startTFT(roomId) {
-            showView('tft-game');
-            document.getElementById('tftRoomIdDisplay').innerText = `ROOM: ${roomId}`;
-            renderTFTShop();
-            renderTFTBench();
-            renderTFTBoard();
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId), (snap) => {
-                if(!snap.exists()) return;
-                const players = snap.data().players;
-                const list = document.getElementById('tftPlayerList');
-                list.innerHTML = Object.entries(players).map(([id, p]) => 
-                    `<div class="text-[11px] p-2 glass rounded-lg ${id === user.uid ? 'border-blue-500' : ''}">${p.name}: ${p.hp} HP</div>`
-                ).join('');
-            });
-        }
-
-        function renderTFTShop() {
-            const shop = document.getElementById('tftShop');
-            shop.innerHTML = '';
-            for(let i=0; i<5; i++) {
-                const u = unitTypes[Math.floor(Math.random() * unitTypes.length)];
-                const div = document.createElement('div');
-                div.className = `flex justify-between items-center p-2 glass rounded-xl cursor-pointer hover:bg-slate-800 transition`;
-                div.innerHTML = `<div class="flex items-center gap-2"><div class="${u.bg} p-2 rounded ${u.color}"><i class="fas ${u.icon}"></i></div><div><div class="text-[10px] font-bold">${u.name}</div><div class="text-[8px] text-slate-500">${u.cost}G</div></div></div>`;
-                div.onclick = () => buyTFTUnit(u);
-                shop.appendChild(div);
-            }
-        }
-
-        function buyTFTUnit(u) {
-            if(localTFT.gold < u.cost) return;
-            const idx = localTFT.bench.indexOf(null);
-            if(idx === -1) return;
-            localTFT.gold -= u.cost;
-            localTFT.bench[idx] = { ...u, id: Math.random() };
-            updateTFTStats();
-            renderTFTBench();
-        }
-
-        function updateTFTStats() {
-            document.getElementById('tftGold').innerText = localTFT.gold;
-            document.getElementById('tftLevel').innerText = localTFT.level;
-        }
-
-        function renderTFTBench() {
-            const el = document.getElementById('tftBench');
-            el.innerHTML = '';
-            localTFT.bench.forEach((u, i) => {
-                const slot = document.createElement('div');
-                slot.className = `w-12 h-12 glass rounded-lg flex items-center justify-center border-dashed border-slate-700 border-2`;
-                if(u) {
-                    slot.innerHTML = `<i class="fas ${u.icon} ${u.color} text-xl cursor-grab"></i>`;
-                    slot.onclick = () => { localTFT.selected = {u, type:'bench', i}; document.getElementById('tftSellBtn').classList.remove('hidden'); };
+        function initBricks() {
+            bricks = [];
+            const d = diffSettings[difficultySelect.value];
+            bricksLeft = d.rows * d.cols;
+            for (let c = 0; c < d.cols; c++) {
+                bricks[c] = [];
+                for (let r = 0; r < d.rows; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1 };
                 }
-                el.appendChild(slot);
-            });
-        }
-
-        function renderTFTBoard() {
-            const el = document.getElementById('tftPlayerField');
-            el.innerHTML = '';
-            for(let i=0; i<14; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'hex-cell';
-                el.appendChild(cell);
             }
         }
 
-        window.rerollTFT = () => { if(localTFT.gold >= 2) { localTFT.gold -= 2; updateTFTStats(); renderTFTShop(); } };
-        window.sellTFTUnit = () => {
-            if(!localTFT.selected) return;
-            localTFT.gold += localTFT.selected.u.cost;
-            if(localTFT.selected.type === 'bench') localTFT.bench[localTFT.selected.i] = null;
-            localTFT.selected = null;
-            document.getElementById('tftSellBtn').classList.add('hidden');
-            renderTFTBench();
-            updateTFTStats();
-        };
-
-        // --- BREAKOUT LOGIC ---
-        const boCanvas = document.getElementById('breakoutCanvas');
-        const boCtx = boCanvas.getContext('2d');
-        let boActive = false, boScore = 0, boLives = 3, boLevel = 1, boAnim = null;
-        let boPaddle = { x: 400 - 70, w: 140, h: 15 };
-        let boBall = { x: 400, y: 540, dx: 5, dy: -5, r: 8 };
-        let boBricks = [];
-        let boBoss = null;
-
-        window.startBreakout = () => {
-            document.getElementById('boStartModal').classList.add('hidden');
-            resetBreakout(true);
-            boActive = true;
-            runBreakout();
-        };
-
-        function resetBreakout(full = true) {
-            if(full) { boScore = 0; boLevel = 1; }
-            else boLevel++;
-            boLives = 3;
-            boBall = { x: 400, y: 540, dx: 4 + boLevel, dy: -(4 + boLevel), r: 8 };
-            boPaddle.x = 400 - 70;
-            initBoBricks();
-            boBoss = null;
-            updateBoUI();
-        }
-
-        function initBoBricks() {
-            boBricks = [];
-            const rows = 3 + boLevel, cols = 8;
-            for(let c=0; c<cols; c++) {
-                boBricks[c] = [];
-                for(let r=0; r<rows; r++) boBricks[c][r] = { x: 0, y: 0, status: 1 };
-            }
-        }
-
-        function updateBoUI() {
-            document.getElementById('boScore').innerText = boScore;
-            document.getElementById('boLives').innerText = boLives;
-            document.getElementById('boLevelDisplay').innerText = `LEVEL ${boLevel}`;
-        }
-
-        function stopBreakout() { boActive = false; cancelAnimationFrame(boAnim); }
-
-        function runBreakout() {
-            if(!boActive) return;
-            boCtx.clearRect(0, 0, 800, 600);
+        function startGame() {
+            playerName = nameInput.value.trim() || 'Player';
+            playerNameDisplay.textContent = playerName;
+            score = 0;
+            lives = 3;
+            bossMode = false;
+            bossAttackProjectiles = [];
+            powerups = [];
             
-            // Paddle
-            boCtx.fillStyle = "#3b82f6";
-            boCtx.fillRect(boPaddle.x, 600 - 30, boPaddle.w, boPaddle.h);
+            const d = diffSettings[difficultySelect.value];
+            balls = [{ x: canvas.width/2, y: canvas.height-40, dx: d.speed, dy: -d.speed, radius: ballRadius }];
+            
+            initBricks();
+            startModal.classList.add('hidden');
+            messageBox.classList.add('hidden');
+            gameStarted = true;
+            lastFrameTime = performance.now();
+            speedIncreaseTimer = setInterval(() => balls.forEach(b => { b.dx *= 1.05; b.dy *= 1.05; }), 15000);
+            requestAnimationFrame(gameLoop);
+        }
 
-            // Ball
-            boCtx.beginPath(); boCtx.arc(boBall.x, boBall.y, boBall.r, 0, Math.PI*2);
-            boCtx.fillStyle = "#FFF"; boCtx.fill(); boCtx.closePath();
+        function endGame(isWin) {
+            gameStarted = false;
+            clearInterval(speedIncreaseTimer);
+            clearInterval(powerupTimer);
+            if (bossAttackTimer) clearInterval(bossAttackTimer);
+            
+            messageTitle.textContent = isWin ? "Victory!" : "Game Over";
+            messageText.textContent = `Score: ${score}`;
+            messageBox.classList.remove('hidden');
+            saveScore(playerName, score);
+        }
 
-            // Collision: Walls
-            if(boBall.x + boBall.dx > 800 - boBall.r || boBall.x + boBall.dx < boBall.r) boBall.dx = -boBall.dx;
-            if(boBall.y + boBall.dy < boBall.r) boBall.dy = -boBall.dy;
-            else if(boBall.y + boBall.dy > 600 - 35) {
-                if(boBall.x > boPaddle.x && boBall.x < boPaddle.x + boPaddle.w) boBall.dy = -boBall.dy;
-                else if(boBall.y > 600) {
-                    boLives--; updateBoUI();
-                    if(boLives <= 0) boEnd(false);
-                    else { boBall.x = 400; boBall.y = 500; boBall.dy = -5; }
-                }
-            }
-
-            // Bricks
-            let count = 0;
-            boBricks.forEach((col, c) => {
-                col.forEach((b, r) => {
-                    if(b.status === 1) {
-                        count++;
-                        b.x = c * 95 + 25; b.y = r * 30 + 80;
-                        boCtx.fillStyle = `hsl(${200 + r*20}, 70%, 50%)`;
-                        boCtx.fillRect(b.x, b.y, 85, 20);
-                        if(boBall.x > b.x && boBall.x < b.x + 85 && boBall.y > b.y && boBall.y < b.y + 20) {
-                            boBall.dy = -boBall.dy; b.status = 0; boScore += 10; updateBoUI();
+        // --- Drawing ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Bricks / Boss
+            if (!bossMode) {
+                const d = diffSettings[difficultySelect.value];
+                const bW = 70, bH = 20, bP = 10, bOffT = 50, bOffL = (canvas.width - (d.cols * (bW+bP))) / 2;
+                for(let c=0; c<d.cols; c++) {
+                    for(let r=0; r<d.rows; r++) {
+                        if(bricks[c][r].status === 1) {
+                            let bx = c*(bW+bP) + bOffL;
+                            let by = r*(bH+bP) + bOffT;
+                            bricks[c][r].x = bx; bricks[c][r].y = by;
+                            ctx.fillStyle = "#3b82f6";
+                            ctx.fillRect(bx, by, bW, bH);
                         }
                     }
+                }
+            } else {
+                // Boss
+                ctx.fillStyle = "#ef4444";
+                ctx.fillRect(boss.x - boss.width/2, boss.y - boss.height/2, boss.width, boss.height);
+                // Health bar
+                ctx.fillStyle = "#1e293b";
+                ctx.fillRect(boss.x - 50, boss.y - 50, 100, 8);
+                ctx.fillStyle = "#ef4444";
+                ctx.fillRect(boss.x - 50, boss.y - 50, (boss.health/boss.maxHealth)*100, 8);
+                // Projectiles
+                bossAttackProjectiles.forEach(p => {
+                    ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fillStyle = "#f59e0b"; ctx.fill();
                 });
+            }
+
+            // Powerups
+            powerups.forEach(p => {
+                ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fillStyle = "#10b981"; ctx.fill();
             });
 
-            if(count === 0) boEnd(true);
+            // Balls
+            balls.forEach(b => {
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2); ctx.fillStyle = "#fff"; ctx.fill();
+            });
 
-            boBall.x += boBall.dx; boBall.y += boBall.dy;
-            boAnim = requestAnimationFrame(runBreakout);
+            // Paddle
+            ctx.fillStyle = "#3b82f6";
+            ctx.fillRect(paddleX, canvas.height - paddleHeight - 5, paddleWidth, paddleHeight);
+
+            // Displays
+            scoreDisplay.textContent = score;
+            livesDisplay.textContent = lives;
+            
+            if (tempMessage) {
+                ctx.font = "bold 40px Sarabun"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+                ctx.fillText(tempMessage, canvas.width/2, canvas.height/2);
+            }
         }
 
-        function boEnd(win) {
-            boActive = false;
-            const box = document.getElementById('boMsgBox');
-            box.classList.remove('hidden'); box.classList.add('flex');
-            document.getElementById('boMsgTitle').innerText = win ? "เลเวลสำเร็จ!" : "จบเกม";
-            document.getElementById('boMsgText').innerText = `คะแนนของคุณคือ: ${boScore}`;
-            document.getElementById('boRestartBtn').onclick = () => {
-                box.classList.add('hidden');
-                if(win) { resetBreakout(false); boActive = true; runBreakout(); }
-                else document.getElementById('boStartModal').classList.remove('hidden');
-            };
+        function gameLoop(t) {
+            if (!gameStarted) return;
+            draw();
+            
+            // Paddle movement
+            // Handled by mousemove listener
+
+            // Balls logic
+            balls.forEach((b, idx) => {
+                b.x += b.dx; b.y += b.dy;
+                if (b.x + b.radius > canvas.width || b.x - b.radius < 0) b.dx = -b.dx;
+                if (b.y - b.radius < 0) b.dy = -b.dy;
+                else if (b.y + b.radius > canvas.height - 15) {
+                    if (b.x > paddleX && b.x < paddleX + paddleWidth) {
+                        b.dy = -Math.abs(b.dy);
+                        // Angle bounce
+                        let diff = b.x - (paddleX + paddleWidth/2);
+                        b.dx = diff * 0.15;
+                    } else {
+                        balls.splice(idx, 1);
+                        if (balls.length === 0) {
+                            lives--;
+                            if (lives <= 0) endGame(false);
+                            else {
+                                const d = diffSettings[difficultySelect.value];
+                                balls.push({ x: canvas.width/2, y: canvas.height-40, dx: d.speed, dy: -d.speed, radius: ballRadius });
+                            }
+                        }
+                    }
+                }
+
+                // Brick collision
+                if (!bossMode) {
+                    const d = diffSettings[difficultySelect.value];
+                    const bW = 70, bH = 20;
+                    for(let c=0; c<d.cols; c++) {
+                        for(let r=0; r<d.rows; r++) {
+                            let br = bricks[c][r];
+                            if(br.status === 1) {
+                                if(b.x > br.x && b.x < br.x + bW && b.y > br.y && b.y < br.y + bH) {
+                                    b.dy = -b.dy; br.status = 0; score += d.mult; bricksLeft--;
+                                    if(Math.random() < 0.15) powerups.push({ x: br.x + bW/2, y: br.y + bH/2, dy: 3 });
+                                    if(bricksLeft <= 0) enterBossMode();
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Boss collision
+                    if (b.x > boss.x - boss.width/2 && b.x < boss.x + boss.width/2 && 
+                        b.y > boss.y - boss.height/2 && b.y < boss.y + boss.height/2) {
+                        b.dy = -b.dy; boss.health--; score += 50;
+                        if(boss.health <= 0) endGame(true);
+                    }
+                }
+            });
+
+            // Powerups
+            powerups.forEach((p, i) => {
+                p.y += p.dy;
+                if (p.y > canvas.height - 20 && p.x > paddleX && p.x < paddleX + paddleWidth) {
+                    balls.push({ x: paddleX + paddleWidth/2, y: canvas.height-40, dx: 3, dy: -5, radius: ballRadius });
+                    powerups.splice(i, 1);
+                } else if (p.y > canvas.height) powerups.splice(i, 1);
+            });
+
+            // Boss movement & attacks
+            if (bossMode) {
+                boss.x += boss.dx;
+                if (boss.x + boss.width/2 > canvas.width || boss.x - boss.width/2 < 0) boss.dx = -boss.dx;
+                bossAttackProjectiles.forEach((p, i) => {
+                    p.y += 5;
+                    if (p.y > canvas.height - 20 && p.x > paddleX && p.x < paddleX + paddleWidth) {
+                        lives--; bossAttackProjectiles.splice(i, 1);
+                        if (lives <= 0) endGame(false);
+                    } else if (p.y > canvas.height) bossAttackProjectiles.splice(i, 1);
+                });
+            }
+
+            requestAnimationFrame(gameLoop);
         }
 
-        boCanvas.addEventListener('mousemove', (e) => {
-            const rect = boCanvas.getBoundingClientRect();
-            boPaddle.x = (e.clientX - rect.left) * (800 / rect.width) - boPaddle.w / 2;
+        function enterBossMode() {
+            bossMode = true; tempMessage = "BOSS ALERT!";
+            setTimeout(() => tempMessage = null, 2000);
+            boss.health = diffSettings[difficultySelect.value].rows * 2;
+            boss.maxHealth = boss.health;
+            bossAttackTimer = setInterval(() => {
+                if(gameStarted && bossMode) bossAttackProjectiles.push({ x: boss.x, y: boss.y, dy: 5 });
+            }, 2000);
+        }
+
+        // --- Firebase Integration ---
+        async function saveScore(name, val) {
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), {
+                    name, score: val, timestamp: new Date()
+                });
+                fetchLeaderboard();
+            } catch (e) { console.error(e); }
+        }
+
+        function fetchLeaderboard() {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'scores'));
+            onSnapshot(q, (snap) => {
+                const data = [];
+                snap.forEach(doc => data.push(doc.data()));
+                data.sort((a, b) => b.score - a.score);
+                leaderboardList.innerHTML = data.slice(0, 10).map((s, i) => `
+                    <div class="leaderboard-item ${s.name === playerName ? 'highlight' : ''}">
+                        <span>${i+1}. ${s.name}</span>
+                        <span class="font-bold text-blue-400">${s.score}</span>
+                    </div>
+                `).join('');
+            }, (err) => console.error(err));
+        }
+
+        // Events
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const root = document.documentElement;
+            const mouseX = e.clientX - rect.left - root.scrollLeft;
+            paddleX = Math.max(0, Math.min(canvas.width - paddleWidth, mouseX - paddleWidth/2));
         });
 
-        init();
+        canvas.addEventListener('touchmove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const touchX = e.touches[0].clientX - rect.left;
+            paddleX = Math.max(0, Math.min(canvas.width - paddleWidth, touchX - paddleWidth/2));
+            e.preventDefault();
+        }, { passive: false });
+
+        startButton.onclick = startGame;
+        restartButton.onclick = () => {
+            messageBox.classList.add('hidden');
+            startModal.classList.remove('hidden');
+        };
+
+        // Auth
+        onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
+                else await signInAnonymously(auth);
+            } else {
+                userId = user.uid;
+            }
+        });
+
+        // Other Games Placeholder
+        function renderTFTGrid() {
+            const grid = document.getElementById('tftField');
+            grid.innerHTML = Array(21).fill('<div class="hex-cell"></div>').join('');
+        }
+
+        window.onload = () => showView('home');
     </script>
 </body>
 </html>
