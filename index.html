@@ -1,532 +1,496 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, updateDoc } from 'firebase/firestore';
-import { Trophy, Users, Sword, Shield, Coins, ArrowLeft, Play, LayoutGrid, Heart } from 'lucide-react';
-
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'aum-hub-v1';
-
-// --- Game Assets/Data ---
-const CHAMPIONS_POOL = [
-  { id: 'knight', name: 'Knight', cost: 1, hp: 600, atk: 50, color: '#3b82f6', icon: '🛡️' },
-  { id: 'archer', name: 'Archer', cost: 1, hp: 400, atk: 70, color: '#10b981', icon: '🏹' },
-  { id: 'mage', name: 'Mage', cost: 2, hp: 350, atk: 90, color: '#8b5cf6', icon: '🪄' },
-  { id: 'warrior', name: 'Warrior', cost: 2, hp: 800, atk: 60, color: '#f59e0b', icon: '⚔️' },
-  { id: 'dragon', name: 'Dragon', cost: 3, hp: 1200, atk: 120, color: '#ef4444', icon: '🐉' },
-  { id: 'assassin', name: 'Assassin', cost: 3, hp: 500, atk: 150, color: '#ec4899', icon: '🔪' },
-];
-
-// --- Sub-Component: Boss Breakout Engine (Ported from User Code) ---
-const BossBreakout = ({ onBack }) => {
-  const canvasRef = useRef(null);
-  const [gameStarted, setGameStarted] = useState(false);
-  const [showStartModal, setShowStartModal] = useState(true);
-  const [showMessageBox, setShowMessageBox] = useState(false);
-  const [messageData, setMessageData] = useState({ title: '', text: '', isWin: false });
-  const [playerName, setPlayerName] = useState('');
-  const [difficulty, setDifficulty] = useState('medium');
-  
-  // Internal Game State (Ref for high performance/animation loop)
-  const stateRef = useRef({
-    score: 0, lives: 3, level: 1, paddleX: 0, balls: [], bricks: [],
-    bossMode: false, boss: null, bossProjectiles: [], bossLives: 3,
-    gameActive: false, animationId: null, cheatInput: ""
-  });
-
-  const [uiState, setUiState] = useState({ score: 0, lives: 3, level: 1, bossLives: 3, bossMode: false });
-
-  const config = {
-    easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
-    medium: { speed: 6, rows: 4, cols: 8, bossHp: 10 },
-    hard: { speed: 8, rows: 5, cols: 10, bossHp: 15 }
-  };
-
-  const initBricks = () => {
-    const { rows, cols } = config[difficulty];
-    const padding = 10;
-    const offsetTop = 80;
-    const offsetLeft = 35;
-    const canvas = canvasRef.current;
-    const bWidth = (canvas.width - (offsetLeft * 2) - (padding * (cols - 1))) / cols;
-    const bHeight = 25;
-
-    const bricks = [];
-    for (let c = 0; c < cols; c++) {
-      bricks[c] = [];
-      for (let r = 0; r < rows; r++) {
-        bricks[c][r] = { x: 0, y: 0, status: 1, w: bWidth, h: bHeight };
-      }
-    }
-    stateRef.current.bricks = bricks;
-  };
-
-  const spawnBoss = () => {
-    const s = stateRef.current;
-    s.bossMode = true;
-    const baseHp = config[difficulty].bossHp;
-    const currentMaxHp = baseHp + (s.level * 10);
-    const canvas = canvasRef.current;
-
-    s.boss = {
-      x: canvas.width / 2 - 75,
-      y: 60,
-      w: 150,
-      h: 50,
-      hp: currentMaxHp,
-      maxHp: currentMaxHp,
-      dx: 3 + (s.level * 0.8),
-      lastShot: Date.now()
-    };
-    s.bossProjectiles = [];
-    s.bossLives = 3;
-    setUiState(prev => ({ ...prev, bossMode: true, bossLives: 3 }));
-  };
-
-  const resetGame = (fullReset = true) => {
-    const s = stateRef.current;
-    const canvas = canvasRef.current;
-    if (s.animationId) cancelAnimationFrame(s.animationId);
-
-    if (fullReset) {
-      s.level = 1;
-      s.score = 0;
-    } else {
-      s.level++;
-    }
-
-    const settings = config[difficulty];
-    s.lives = 3;
-    s.bossMode = false;
-    s.boss = null;
-    s.bossProjectiles = [];
-    s.cheatInput = "";
-    s.gameActive = true;
-    s.paddleX = (canvas.width - 140) / 2;
-    s.balls = [{
-      x: canvas.width / 2,
-      y: canvas.height - 60,
-      dx: (settings.speed + (s.level * 0.3)) * (Math.random() > 0.5 ? 1 : -1),
-      dy: -(settings.speed + (s.level * 0.3))
-    }];
-
-    initBricks();
-    setUiState({ 
-      score: s.score, 
-      lives: s.lives, 
-      level: s.level, 
-      bossLives: 3, 
-      bossMode: false 
-    });
-    
-    requestAnimationFrame(gameLoop);
-  };
-
-  const endGame = (title, text, win) => {
-    const s = stateRef.current;
-    s.gameActive = false;
-    if (s.animationId) cancelAnimationFrame(s.animationId);
-    
-    setMessageData({ title, text, isWin: win });
-    setShowMessageBox(true);
-  };
-
-  const gameLoop = () => {
-    const s = stateRef.current;
-    if (!s.gameActive) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const paddleWidth = 140;
-    const paddleHeight = 15;
-    const ballRadius = 8;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 1. Draw Bricks or Boss
-    if (!s.bossMode) {
-      let bricksLeft = 0;
-      s.bricks.forEach((col, c) => {
-        col.forEach((b, r) => {
-          if (b.status === 1) {
-            bricksLeft++;
-            const padding = 10;
-            const offsetTop = 80;
-            const offsetLeft = 35;
-            b.x = (c * (b.w + padding)) + offsetLeft;
-            b.y = (r * (b.h + padding)) + offsetTop;
-            ctx.beginPath();
-            ctx.roundRect(b.x, b.y, b.w, b.h, 4);
-            ctx.fillStyle = `hsl(${200 + (r * 25)}, 70%, 50%)`;
-            ctx.fill();
-            ctx.closePath();
-          }
-        });
-      });
-      if (bricksLeft === 0) spawnBoss();
-    } else if (s.boss) {
-      // Boss Body
-      ctx.beginPath();
-      ctx.roundRect(s.boss.x, s.boss.y, s.boss.w, s.boss.h, 10);
-      ctx.fillStyle = "#ef4444";
-      ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.closePath();
-
-      // Boss HP Bar
-      const hbW = 300;
-      ctx.fillStyle = "#333";
-      ctx.fillRect(canvas.width / 2 - hbW / 2, 25, hbW, 20);
-      ctx.fillStyle = "#f87171";
-      ctx.fillRect(canvas.width / 2 - hbW / 2, 25, (Math.max(0, s.boss.hp) / s.boss.maxHp) * hbW, 20);
-
-      s.boss.x += s.boss.dx;
-      if (s.boss.x < 0 || s.boss.x + s.boss.w > canvas.width) s.boss.dx = -s.boss.dx;
-
-      const now = Date.now();
-      if (now - s.boss.lastShot > (1800 - (s.level * 100))) {
-        s.bossProjectiles.push({ x: s.boss.x + s.boss.w / 2, y: s.boss.y + s.boss.h, dy: 5 + (s.level * 0.4) });
-        s.boss.lastShot = now;
-      }
-
-      // Boss Projectiles
-      s.bossProjectiles.forEach((p, pi) => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-        ctx.fillStyle = "#fbbf24";
-        ctx.fill();
-        ctx.closePath();
-        p.y += p.dy;
-
-        if (p.y > canvas.height - paddleHeight - 25 && p.x > s.paddleX && p.x < s.paddleX + paddleWidth) {
-          s.bossProjectiles.splice(pi, 1);
-          s.bossLives--;
-          setUiState(prev => ({ ...prev, bossLives: s.bossLives }));
-          if (s.bossLives <= 0) endGame("คุณพ่ายแพ้!", "เกราะป้องกันพังทลายแล้ว!", false);
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AUM HUB - Game Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            margin: 0;
+            overflow-x: hidden;
         }
-        if (p.y > canvas.height) s.bossProjectiles.splice(pi, 1);
-      });
-
-      if (s.boss.hp <= 0) {
-        s.boss = null;
-        endGame("บอสพ่ายแพ้!", "บล็อกกำลังฟื้นตัว... เตรียมพร้อมเลเวลถัดไป", true);
-      }
-    }
-
-    // 2. Draw Paddle
-    ctx.beginPath();
-    ctx.roundRect(s.paddleX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight, 8);
-    ctx.fillStyle = "#3b82f6";
-    ctx.fill();
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = "#3b82f6";
-    ctx.closePath();
-    ctx.shadowBlur = 0;
-
-    // 3. Draw & Update Balls
-    s.balls.forEach((ball) => {
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
-      ctx.fillStyle = "#FFF";
-      ctx.fill();
-      ctx.closePath();
-
-      if (ball.x + ball.dx > canvas.width - ballRadius || ball.x + ball.dx < ballRadius) ball.dx = -ball.dx;
-      if (ball.y + ball.dy < ballRadius) ball.dy = -ball.dy;
-
-      // Paddle Collision
-      if (ball.y + ball.dy > canvas.height - paddleHeight - 35) {
-        if (ball.x > s.paddleX && ball.x < s.paddleX + paddleWidth) {
-          ball.dy = -Math.abs(ball.dy);
-          let hitPoint = (ball.x - (s.paddleX + paddleWidth / 2)) / (paddleWidth / 2);
-          ball.dx = hitPoint * (config[difficulty].speed + (s.level * 0.4));
-        } else if (ball.y > canvas.height) {
-          s.lives--;
-          setUiState(prev => ({ ...prev, lives: s.lives }));
-          if (s.lives <= 0) {
-            endGame("GAME OVER", "เลเวลที่คุณไปถึง: " + s.level, false);
-          } else {
-            ball.x = canvas.width / 2;
-            ball.y = canvas.height - 60;
-            ball.dy = -(config[difficulty].speed + (s.level * 0.4));
-          }
+        canvas {
+            background: #000;
+            display: block;
+            border-radius: 0.5rem;
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+            touch-action: none;
         }
-      }
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .hex-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .hex-cell {
+            aspect-ratio: 1/1;
+            background: rgba(51, 65, 85, 0.5);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .hex-cell:hover {
+            background: rgba(59, 130, 246, 0.3);
+        }
+        .unit-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 2px solid #334155;
+        }
+        .unit-card.active {
+            border-color: #3b82f6;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
 
-      // Brick/Boss Collision
-      if (!s.bossMode) {
-        s.bricks.forEach(col => {
-          col.forEach(b => {
-            if (b.status === 1 && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
-              ball.dy = -ball.dy;
-              b.status = 0;
-              s.score += 10;
-              setUiState(prev => ({ ...prev, score: s.score }));
+    <!-- NAVIGATION -->
+    <nav class="p-6 flex justify-between items-center glass sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
+                <i class="fas fa-cubes text-white"></i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
+        </div>
+        <div id="navActions" class="hidden flex items-center gap-4">
+            <button onclick="showLobby()" class="text-sm text-slate-400 hover:text-white transition-colors">
+                <i class="fas fa-home mr-1"></i> กลับหน้าหลัก
+            </button>
+        </div>
+    </nav>
+
+    <!-- LOBBY VIEW -->
+    <main id="lobbyView" class="container mx-auto px-6 py-12">
+        <div class="max-w-4xl mx-auto text-center mb-16">
+            <h2 class="text-5xl font-black mb-4 bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent uppercase">
+                Game Center
+            </h2>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            <!-- Breakout Card -->
+            <div onclick="switchView('breakoutView')" class="glass p-8 rounded-3xl cursor-pointer hover:border-blue-500/50 transition-all group border border-transparent">
+                <div class="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-gamepad text-2xl text-blue-400"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Breakout: Boss Evolution</h3>
+                <p class="text-slate-400 text-sm mb-6"></p> <!-- ลบคำอธิบายออกตามสั่ง -->
+                <div class="flex items-center text-blue-400 font-bold text-sm">
+                    เล่นเกม <i class="fas fa-arrow-right ml-2"></i>
+                </div>
+            </div>
+
+            <!-- TFT Card -->
+            <div onclick="switchView('tftView')" class="glass p-8 rounded-3xl cursor-pointer hover:border-purple-500/50 transition-all group border border-transparent">
+                <div class="w-16 h-16 bg-purple-500/20 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-chess-board text-2xl text-purple-400"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Tactical Battle (TFT Mode)</h3>
+                <p class="text-slate-400 text-sm mb-6"></p> <!-- ลบคำอธิบายออกตามสั่ง -->
+                <div class="flex items-center text-purple-400 font-bold text-sm">
+                    เข้าสู่สนามรบ <i class="fas fa-arrow-right ml-2"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Empty Analysis Area -->
+        <div class="mt-12 p-12 max-w-5xl mx-auto">
+            <!-- ว่างเปล่าตามสั่ง -->
+        </div>
+    </main>
+
+    <!-- BREAKOUT VIEW -->
+    <main id="breakoutView" class="hidden container mx-auto px-4 py-8">
+        <div class="flex flex-col items-center space-y-4 max-w-4xl mx-auto w-full">
+            <div class="text-center w-full">
+                <h1 class="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500 uppercase">Breakout: Boss Evolution</h1>
+                <p id="levelIndicator" class="text-xs md:text-sm text-gray-400 font-mono uppercase tracking-widest mt-1">Level 1</p>
+            </div>
+            
+            <div class="relative w-full flex justify-center">
+                <canvas id="gameCanvas" width="800" height="600" class="w-full h-auto max-w-3xl border border-slate-700"></canvas>
+
+                <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black/90 rounded-lg z-10 p-4">
+                    <div class="glass p-8 rounded-3xl text-center w-full max-w-sm border border-slate-700">
+                        <h2 class="text-2xl font-bold mb-4 text-white">เตรียมตัวให้พร้อม</h2>
+                        <input type="text" id="nameInput" placeholder="ใส่ชื่อของคุณ" class="w-full p-4 rounded-xl bg-slate-800 text-white border border-slate-600 mb-4 text-center focus:border-blue-500 outline-none">
+                        <select id="difficultySelect" class="w-full p-4 rounded-xl bg-slate-800 text-white border border-slate-600 mb-6 cursor-pointer">
+                            <option value="easy">ง่าย (Easy)</option>
+                            <option value="medium" selected>ปานกลาง (Medium)</option>
+                            <option value="hard">ยาก (Hard)</option>
+                        </select>
+                        <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 transition">เริ่มเกม</button>
+                    </div>
+                </div>
+
+                <div id="messageBox" class="absolute inset-0 hidden items-center justify-center bg-black/90 rounded-lg z-20 p-4">
+                    <div class="glass p-8 rounded-3xl text-center w-full max-w-sm">
+                        <h2 id="messageTitle" class="text-2xl font-bold mb-2 text-white"></h2>
+                        <p id="messageText" class="text-lg mb-6 text-slate-300"></p>
+                        <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition">ดำเนินการต่อ</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:flex md:justify-between items-center w-full max-w-3xl px-6 py-4 glass rounded-2xl gap-4">
+                <div class="flex flex-col"><span class="text-[10px] text-slate-500 uppercase tracking-tighter">Player</span><span id="playerNameDisplay" class="text-blue-400 font-bold">-</span></div>
+                <div class="flex flex-col"><span class="text-[10px] text-slate-500 uppercase tracking-tighter">Score</span><span id="scoreDisplay" class="text-white font-bold">0</span></div>
+                <div class="flex flex-col"><span class="text-[10px] text-slate-500 uppercase tracking-tighter">Lives</span><span id="livesDisplay" class="text-red-400 font-bold">3</span></div>
+                <div id="bossShieldContainer" class="hidden flex flex-col"><span class="text-[10px] text-slate-500 uppercase tracking-tighter">Boss Shield</span><span id="bossShieldDisplay" class="text-yellow-400 font-bold">3/3</span></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- TFT VIEW -->
+    <main id="tftView" class="hidden container mx-auto px-4 py-8">
+        <div class="max-w-6xl mx-auto grid lg:grid-cols-3 gap-8">
+            <!-- Game Board -->
+            <div class="lg:col-span-2 flex flex-col gap-4">
+                <div class="glass p-4 rounded-2xl flex justify-between items-center">
+                    <div class="flex items-center gap-4">
+                        <div class="text-yellow-500 font-bold"><i class="fas fa-coins mr-1"></i> <span id="tftGold">50</span></div>
+                        <div class="text-blue-400 font-bold"><i class="fas fa-level-up-alt mr-1"></i> Lv.<span id="tftLevel">1</span></div>
+                    </div>
+                    <div class="text-sm font-mono text-slate-400" id="tftPhase">PREPARATION PHASE</div>
+                    <button id="startBattleBtn" class="bg-red-600 hover:bg-red-700 text-white px-6 py-1 rounded-lg text-sm font-bold uppercase transition">Start Fight</button>
+                </div>
+
+                <!-- Battle Field (Hex Grid) -->
+                <div class="glass aspect-video rounded-3xl p-8 flex flex-col gap-4">
+                    <!-- Enemy Side -->
+                    <div class="hex-grid opacity-80" id="enemyField">
+                        <!-- Hex Cells Generated via JS -->
+                    </div>
+                    <div class="h-px bg-slate-700/50 my-4"></div>
+                    <!-- Player Side -->
+                    <div class="hex-grid" id="playerField">
+                        <!-- Hex Cells Generated via JS -->
+                    </div>
+                </div>
+
+                <!-- Bench -->
+                <div class="glass p-4 rounded-2xl flex gap-2 overflow-x-auto h-24 items-center px-6" id="playerBench">
+                    <!-- Unit Slots on Bench -->
+                </div>
+            </div>
+
+            <!-- Shop & UI -->
+            <div class="flex flex-col gap-4">
+                <div class="glass p-6 rounded-2xl">
+                    <h3 class="font-bold mb-4 uppercase text-sm tracking-widest text-slate-400">Unit Shop</h3>
+                    <div class="flex flex-col gap-3" id="unitShop">
+                        <!-- Shop Items -->
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 gap-2">
+                        <button onclick="rerollShop()" class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg text-xs font-bold"><i class="fas fa-sync-alt mr-1"></i> Reroll (2G)</button>
+                        <button onclick="buyExp()" class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg text-xs font-bold"><i class="fas fa-arrow-up mr-1"></i> Buy XP (4G)</button>
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-2xl flex-grow">
+                    <h3 class="font-bold mb-4 uppercase text-sm tracking-widest text-slate-400">Synergies</h3>
+                    <div id="synergyList" class="space-y-2">
+                        <div class="text-xs text-slate-500 italic">No synergies active...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Navigation ---
+        let currentView = 'lobbyView';
+
+        function switchView(viewId) {
+            document.getElementById(currentView).classList.add('hidden');
+            document.getElementById(viewId).classList.remove('hidden');
+            document.getElementById('navActions').classList.toggle('hidden', viewId === 'lobbyView');
+            currentView = viewId;
+            
+            if(viewId === 'breakoutView') {
+                // Keep Breakout ready
+            } else if(viewId === 'tftView') {
+                initTFT();
             }
-          });
-        });
-      } else if (s.boss) {
-        if (ball.x > s.boss.x && ball.x < s.boss.x + s.boss.w && ball.y > s.boss.y && ball.y < s.boss.y + s.boss.h) {
-          ball.dy = -ball.dy;
-          s.boss.hp -= 1;
-          s.score += 50;
-          setUiState(prev => ({ ...prev, score: s.score }));
+            window.scrollTo(0,0);
         }
-      }
-      ball.x += ball.dx;
-      ball.y += ball.dy;
-    });
 
-    s.animationId = requestAnimationFrame(gameLoop);
-  };
+        function showLobby() { switchView('lobbyView'); if(animationId) cancelAnimationFrame(animationId); gameActive = false; }
 
-  const handleInput = (clientX) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const x = (clientX - rect.left) * scaleX - 70; // 140 / 2
-    stateRef.current.paddleX = Math.max(0, Math.min(x, canvas.width - 140));
-  };
+        // --- TFT Logic (New System) ---
+        let tftGold = 50;
+        let tftLevel = 1;
+        const shopUnits = [
+            { name: "Knight", cost: 1, type: "Tank", icon: "fa-shield-halved", color: "text-blue-400" },
+            { name: "Archer", cost: 1, type: "DPS", icon: "fa-bullseye", color: "text-green-400" },
+            { name: "Mage", cost: 2, type: "Magic", icon: "fa-wand-sparkles", color: "text-purple-400" },
+            { name: "Assassin", cost: 3, type: "Burst", icon: "fa-khanda", color: "text-red-400" }
+        ];
 
-  // Keyboard Cheats
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (!stateRef.current.gameActive) return;
-      if (e.key >= '0' && e.key <= '9') {
-        stateRef.current.cheatInput += e.key;
-        if (stateRef.current.cheatInput.includes("1234")) {
-          stateRef.current.cheatInput = "";
-          if (stateRef.current.bossMode && stateRef.current.boss) {
-            stateRef.current.boss.hp = 0;
-          } else if (!stateRef.current.bossMode) {
-            stateRef.current.bricks.forEach(col => col.forEach(b => b.status = 0));
-          }
+        function initTFT() {
+            const playerField = document.getElementById('playerField');
+            const enemyField = document.getElementById('enemyField');
+            playerField.innerHTML = '';
+            enemyField.innerHTML = '';
+            
+            // Generate 28 hex cells (4 rows of 7) for each side
+            for(let i=0; i<14; i++) {
+                enemyField.innerHTML += `<div class="hex-cell text-red-900/20"><i class="fas fa-ghost"></i></div>`;
+                playerField.innerHTML += `<div class="hex-cell" onclick="selectHex(${i})"></div>`;
+            }
+            rerollShop();
         }
-        if (stateRef.current.cheatInput.length > 4) stateRef.current.cheatInput = stateRef.current.cheatInput.slice(-4);
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, []);
 
-  return (
-    <div className="flex flex-col items-center gap-4 w-full max-w-4xl mx-auto overflow-hidden">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500">Breakout: Boss Evolution</h1>
-        <p className="text-xs text-slate-400 font-mono uppercase tracking-widest">Level {uiState.level}</p>
-      </div>
-
-      <div className="relative w-full group">
-        <canvas 
-          ref={canvasRef} 
-          width={800} height={600} 
-          onMouseMove={(e) => handleInput(e.clientX)}
-          onTouchMove={(e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }}
-          className="w-full bg-black rounded-xl border border-slate-700 shadow-2xl touch-none"
-        />
-
-        {/* Start Modal */}
-        {showStartModal && (
-          <div className="absolute inset-0 bg-black/90 flex items-center justify-center rounded-xl z-10 p-4 backdrop-blur-sm">
-            <div className="bg-slate-900 p-8 rounded-2xl border border-slate-700 w-full max-w-sm text-center shadow-2xl">
-              <h2 className="text-2xl font-bold mb-6 text-white">เตรียมตัวให้พร้อม</h2>
-              <input 
-                type="text" 
-                placeholder="ใส่ชื่อของคุณ" 
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="w-full p-3 mb-4 rounded-lg bg-slate-800 border border-slate-700 text-center text-white focus:ring-2 ring-blue-500 outline-none" 
-              />
-              <select 
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
-                className="w-full p-3 mb-6 rounded-lg bg-slate-800 border border-slate-700 text-white cursor-pointer"
-              >
-                <option value="easy">ง่าย (Easy)</option>
-                <option value="medium">ปานกลาง (Medium)</option>
-                <option value="hard">ยาก (Hard)</option>
-              </select>
-              <button 
-                onClick={() => { setShowStartModal(false); resetGame(true); }}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-all shadow-lg"
-              >
-                เริ่มเกม
-              </button>
-              <p className="text-[10px] text-slate-500 mt-4 uppercase">* เคลียร์บล็อกเพื่อเรียกบอส / โค้ดลับ 1234</p>
-            </div>
-          </div>
-        )}
-
-        {/* Message Box */}
-        {showMessageBox && (
-          <div className="absolute inset-0 bg-black/90 flex items-center justify-center rounded-xl z-20 p-4">
-            <div className="bg-slate-900 p-8 rounded-2xl border border-slate-700 w-full max-w-sm text-center">
-              <h2 className="text-3xl font-black mb-2 text-white uppercase tracking-tighter">{messageData.title}</h2>
-              <p className="text-slate-400 mb-6">{messageData.text} | Score: {uiState.score}</p>
-              <button 
-                onClick={() => {
-                  setShowMessageBox(false);
-                  if(messageData.isWin) resetGame(false);
-                  else setShowStartModal(true);
-                }}
-                className={`w-full py-3 rounded-lg font-bold transition-all ${messageData.isWin ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'}`}
-              >
-                {messageData.isWin ? `ลุยเลเวล ${uiState.level + 1}` : "ลองใหม่อีกครั้ง"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 md:flex md:justify-between items-center w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 gap-4">
-        <div className="text-xs uppercase font-bold text-slate-400">Name: <span className="text-blue-400">{playerName || "-"}</span></div>
-        <div className="text-xs uppercase font-bold text-slate-400">Score: <span className="text-white">{uiState.score}</span></div>
-        <div className="text-xs uppercase font-bold text-slate-400 flex items-center gap-1">
-          Lives: <span className="text-red-500 flex items-center">{Array.from({length: uiState.lives}).map((_, i)=><Heart key={i} className="w-3 h-3 fill-current inline-block ml-0.5" />)}</span>
-        </div>
-        {uiState.bossMode && (
-          <div className="text-xs uppercase font-bold text-slate-400">Boss Shield: <span className="text-yellow-500">{uiState.bossLives}/3</span></div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// --- Main Hub App ---
-export default function App() {
-  const [view, setView] = useState('lobby');
-  const [user, setUser] = useState(null);
-  const [roomData, setRoomData] = useState(null);
-  const [gold, setGold] = useState(10);
-  const [myBench, setMyBench] = useState([]);
-  const [myBoard, setMyBoard] = useState([]);
-  const [shop, setShop] = useState([]);
-
-  useEffect(() => {
-    const login = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    login();
-    return onAuthStateChanged(auth, (u) => {
-      if (u) {
-        setUser(u);
-        const newShop = Array.from({ length: 5 }, () => CHAMPIONS_POOL[Math.floor(Math.random() * CHAMPIONS_POOL.length)]);
-        setShop(newShop);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!user || !roomData?.id) return;
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomData.id);
-    return onSnapshot(roomRef, (doc) => {
-      if (doc.exists()) setRoomData({ id: doc.id, ...doc.data() });
-    }, (err) => console.error("Firestore Error:", err));
-  }, [user, roomData?.id]);
-
-  const joinTFT = async () => {
-    if (!user) return;
-    const roomId = "online-lobby-01";
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-    await setDoc(roomRef, { players: { [user.uid]: { uid: user.uid, name: `Player ${user.uid.substr(0,4)}`, board: [] } }, lastUpdated: Date.now() }, { merge: true });
-    setRoomData({ id: roomId });
-    setView('tft');
-  };
-
-  if (view === 'lobby') {
-    return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950">
-        <div className="text-center mb-12">
-          <h1 className="text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-purple-400 to-pink-500">
-            AUM HUB
-          </h1>
-          <p className="text-slate-400 mt-2 tracking-[0.3em] uppercase text-xs font-bold">The Premier Gaming Platform</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
-          <button onClick={() => setView('breakout')} className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-8 rounded-3xl transition-all hover:border-blue-500/50 hover:bg-slate-900/60 hover:shadow-[0_0_40px_-15px_rgba(59,130,246,0.3)]">
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
-            <LayoutGrid className="w-12 h-12 text-blue-400 mb-4 group-hover:scale-110 transition-transform" />
-            <h2 className="text-2xl font-bold text-left">Breakout Boss</h2>
-            <p className="text-slate-500 text-left text-xs mt-2 font-medium">Evolution Edition: Level, Boss, Cheats</p>
-          </button>
-
-          <button onClick={joinTFT} className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-8 rounded-3xl transition-all hover:border-purple-500/50 hover:bg-slate-900/60 hover:shadow-[0_0_40px_-15px_rgba(168,85,247,0.3)]">
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-purple-500" />
-            <Users className="w-12 h-12 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
-            <h2 className="text-2xl font-bold text-left">TFT Online Arena</h2>
-            <p className="text-slate-500 text-left text-xs mt-2 font-medium">Auto-battler Strategy Online V1</p>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col p-4">
-      <div className="max-w-6xl mx-auto w-full flex flex-col flex-1">
-        <div className="flex justify-between items-center mb-6">
-          <button onClick={() => setView('lobby')} className="p-3 bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors border border-slate-800 group">
-            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          </button>
-          {view === 'tft' && (
-            <div className="flex gap-4">
-              <div className="bg-slate-900 px-6 py-2 rounded-xl border border-yellow-500/30 flex items-center gap-2">
-                <Coins className="w-4 h-4 text-yellow-500" />
-                <span className="font-black text-yellow-500">{gold}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {view === 'breakout' ? <BossBreakout /> : (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 items-start">
-             {/* Simple TFT UI for reference */}
-             <div className="lg:col-span-3 space-y-6">
-                <div className="bg-slate-900/40 p-4 rounded-2xl border border-red-500/10">
-                   <h4 className="text-[10px] text-red-500 font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><Sword className="w-3 h-3"/> Enemy View</h4>
-                   <div className="h-32 border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-slate-700 italic text-sm">Waiting for opponent...</div>
-                </div>
-                <div className="bg-slate-900/60 p-8 rounded-3xl border border-blue-500/10 min-h-[400px]">
-                   <h4 className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-6 flex items-center gap-2"><Shield className="w-3 h-3"/> Your Battleground</h4>
-                   <div className="grid grid-cols-5 gap-4">
-                      {myBoard.map((c, i) => (
-                        <div key={i} className="aspect-square bg-slate-800 rounded-2xl flex items-center justify-center text-5xl shadow-2xl border-b-4" style={{borderColor: c.color}}>{c.icon}</div>
-                      ))}
-                      {Array.from({length: 10 - myBoard.length}).map((_, i) => (
-                        <div key={i} className="aspect-square border-2 border-dashed border-slate-800 rounded-2xl" />
-                      ))}
-                   </div>
-                </div>
-             </div>
-             <div className="lg:col-span-1 bg-slate-900 p-6 rounded-3xl border border-slate-800">
-                <h4 className="text-xs font-bold uppercase text-slate-400 mb-4">Shop</h4>
-                <div className="space-y-3">
-                   {shop.map((c, i) => c && (
-                     <button key={i} onClick={()=>{ if(gold>=c.cost){ setGold(g=>g-c.cost); setMyBench([...myBench, c]); const ns=[...shop]; ns[i]=null; setShop(ns); }}} className="w-full p-4 bg-slate-800 rounded-xl flex items-center justify-between border border-transparent hover:border-yellow-500 transition-all">
-                        <span className="text-3xl">{c.icon}</span>
-                        <div className="text-right">
-                           <div className="text-[10px] font-bold text-slate-400 uppercase">{c.name}</div>
-                           <div className="text-yellow-500 font-black">${c.cost}</div>
+        function rerollShop() {
+            if(tftGold < 2) return;
+            const shop = document.getElementById('unitShop');
+            shop.innerHTML = '';
+            for(let i=0; i<5; i++) {
+                const unit = shopUnits[Math.floor(Math.random() * shopUnits.length)];
+                shop.innerHTML += `
+                    <div class="unit-card p-3 rounded-xl flex justify-between items-center cursor-pointer hover:scale-[1.02] transition-transform" onclick="buyUnit('${unit.name}')">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center ${unit.color}">
+                                <i class="fas ${unit.icon}"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs font-bold">${unit.name}</div>
+                                <div class="text-[10px] text-slate-500">${unit.type}</div>
+                            </div>
                         </div>
-                     </button>
-                   ))}
-                </div>
-             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                        <div class="text-yellow-500 font-bold text-sm">${unit.cost}G</div>
+                    </div>
+                `;
+            }
+        }
+
+        function buyUnit(name) {
+            // Placeholder buy logic
+            const bench = document.getElementById('playerBench');
+            const unit = shopUnits.find(u => u.name === name);
+            if(bench.children.length < 9) {
+                bench.innerHTML += `<div class="w-12 h-12 flex-shrink-0 bg-slate-800 rounded-xl flex items-center justify-center ${unit.color} border border-slate-700 shadow-lg"><i class="fas ${unit.icon}"></i></div>`;
+            }
+        }
+
+        // --- Breakout Logic (Original Assets) ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const startModal = document.getElementById('startModal');
+        const messageBox = document.getElementById('messageBox');
+        
+        let gameActive = false;
+        let animationId = null;
+        let score = 0;
+        let lives = 3;
+        let level = 1;
+        let playerName = "";
+        let paddleX;
+        const paddleWidth = 140;
+        const paddleHeight = 15;
+        const ballRadius = 8;
+        
+        let balls = [];
+        let bricks = [];
+        let difficulty = 'medium';
+        let bossMode = false;
+        let boss = null;
+        let bossProjectiles = [];
+        let bossLives = 3;
+        let isWinState = false;
+
+        let cheatInput = "";
+        window.addEventListener('keydown', (e) => {
+            if (currentView !== 'breakoutView' || !gameActive) return;
+            if (e.key >= '0' && e.key <= '9') {
+                cheatInput += e.key;
+                if (cheatInput.includes("1234")) {
+                    cheatInput = "";
+                    if (bossMode && boss) boss.hp = 0;
+                    else if (!bossMode) bricks.forEach(col => col.forEach(b => b.status = 0));
+                }
+                if (cheatInput.length > 4) cheatInput = cheatInput.slice(-4);
+            }
+        });
+
+        const config = {
+            easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
+            medium: { speed: 6, rows: 4, cols: 8, bossHp: 10 },
+            hard: { speed: 8, rows: 5, cols: 10, bossHp: 15 }
+        };
+
+        function initBricks() {
+            const { rows, cols } = config[difficulty];
+            const padding = 10;
+            const offsetTop = 100;
+            const offsetLeft = 35;
+            const bWidth = (canvas.width - (offsetLeft * 2) - (padding * (cols-1))) / cols;
+            const bHeight = 25;
+            bricks = [];
+            for(let c=0; c<cols; c++) {
+                bricks[c] = [];
+                for(let r=0; r<rows; r++) {
+                    bricks[c][r] = { x: 0, y: 0, status: 1, w: bWidth, h: bHeight };
+                }
+            }
+        }
+
+        function spawnBoss() {
+            bossMode = true;
+            const currentMaxHp = config[difficulty].bossHp + (level * 10); 
+            boss = { x: canvas.width/2 - 75, y: 80, w: 150, h: 50, hp: currentMaxHp, maxHp: currentMaxHp, dx: 3 + (level * 0.8), lastShot: 0 };
+            bossProjectiles = [];
+            bossLives = 3; 
+            document.getElementById('bossShieldContainer').classList.remove('hidden');
+            updateUI();
+        }
+
+        function resetGame(fullReset = true) {
+            if (animationId) cancelAnimationFrame(animationId);
+            if(fullReset) { level = 1; score = 0; playerName = document.getElementById('nameInput').value || "Player"; }
+            else { level++; }
+            difficulty = document.getElementById('difficultySelect').value;
+            lives = 3; bossMode = false; boss = null; bossProjectiles = []; isWinState = false; cheatInput = "";
+            document.getElementById('bossShieldContainer').classList.add('hidden');
+            document.getElementById('levelIndicator').innerText = `LEVEL ${level}`;
+            document.getElementById('playerNameDisplay').innerText = playerName;
+            paddleX = (canvas.width - paddleWidth) / 2;
+            balls = [{ x: canvas.width / 2, y: canvas.height - 60, dx: (config[difficulty].speed + (level * 0.3)) * (Math.random() > 0.5 ? 1 : -1), dy: -(config[difficulty].speed + (level * 0.3)) }];
+            initBricks();
+            updateUI();
+            gameActive = true;
+        }
+
+        function updateUI() {
+            document.getElementById('scoreDisplay').innerText = score;
+            document.getElementById('livesDisplay').innerText = lives;
+            document.getElementById('bossShieldDisplay').innerText = bossLives + "/3";
+        }
+
+        function handleInput(clientX) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            paddleX = (clientX - rect.left) * scaleX - paddleWidth / 2;
+            if(paddleX < 0) paddleX = 0;
+            if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+        }
+
+        canvas.addEventListener('mousemove', (e) => handleInput(e.clientX));
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
+
+        function draw() {
+            if(!gameActive) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if(!bossMode) {
+                let bricksLeft = 0;
+                bricks.forEach((col, c) => {
+                    col.forEach((b, r) => {
+                        if(b.status === 1) {
+                            bricksLeft++;
+                            b.x = (c * (b.w + 10)) + 35;
+                            b.y = (r * (b.h + 10)) + 100;
+                            ctx.beginPath();
+                            ctx.roundRect(b.x, b.y, b.w, b.h, 4);
+                            ctx.fillStyle = `hsl(${200 + (r*25)}, 70%, 50%)`;
+                            ctx.fill();
+                            ctx.closePath();
+                        }
+                    });
+                });
+                if(bricksLeft === 0) spawnBoss();
+            } else if(boss) {
+                ctx.beginPath();
+                ctx.roundRect(boss.x, boss.y, boss.w, boss.h, 10);
+                ctx.fillStyle = "#ef4444";
+                ctx.fill();
+                ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+                ctx.closePath();
+                ctx.fillStyle = "#333"; ctx.fillRect(canvas.width/2 - 150, 40, 300, 20);
+                ctx.fillStyle = "#f87171"; ctx.fillRect(canvas.width/2 - 150, 40, (Math.max(0, boss.hp) / boss.maxHp) * 300, 20);
+                boss.x += boss.dx;
+                if(boss.x < 0 || boss.x + boss.w > canvas.width) boss.dx = -boss.dx;
+                const now = Date.now();
+                if(now - boss.lastShot > (1800 - (level * 100))) {
+                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 5 + (level * 0.4) });
+                    boss.lastShot = now;
+                }
+                bossProjectiles.forEach((p, pi) => {
+                    ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fillStyle = "#fbbf24"; ctx.fill(); ctx.closePath();
+                    p.y += p.dy;
+                    if(p.y > canvas.height - paddleHeight - 25 && p.x > paddleX && p.x < paddleX + paddleWidth) {
+                        bossProjectiles.splice(pi, 1); bossLives--; updateUI();
+                        if(bossLives <= 0) endGame("GAME OVER", "Shield depleted!", false);
+                    }
+                    if(p.y > canvas.height) bossProjectiles.splice(pi, 1);
+                });
+                if (boss.hp <= 0) { boss = null; endGame("VICTORY!", "Boss defeated!", true); }
+            }
+
+            ctx.beginPath(); ctx.roundRect(paddleX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight, 8);
+            ctx.fillStyle = "#3b82f6"; ctx.fill(); ctx.closePath();
+
+            balls.forEach((ball) => {
+                ctx.beginPath(); ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI*2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.closePath();
+                if(ball.x + ball.dx > canvas.width - ballRadius || ball.x + ball.dx < ballRadius) ball.dx = -ball.dx;
+                if(ball.y + ball.dy < ballRadius) ball.dy = -ball.dy;
+                if(ball.y + ball.dy > canvas.height - paddleHeight - 35) {
+                    if(ball.x > paddleX && ball.x < paddleX + paddleWidth) {
+                        ball.dy = -Math.abs(ball.dy);
+                        ball.dx = ((ball.x - (paddleX + paddleWidth/2)) / (paddleWidth/2)) * (config[difficulty].speed + (level * 0.4));
+                    } else if (ball.y > canvas.height) {
+                        lives--; updateUI();
+                        if(lives <= 0) endGame("GAME OVER", "Level: " + level, false);
+                        else { ball.x = canvas.width / 2; ball.y = canvas.height - 60; ball.dy = -(config[difficulty].speed + (level * 0.4)); }
+                    }
+                }
+                if(!bossMode) {
+                    bricks.forEach(col => col.forEach(b => {
+                        if(b.status === 1 && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+                            ball.dy = -ball.dy; b.status = 0; score += 10; updateUI();
+                        }
+                    }));
+                } else if(boss) {
+                    if(ball.x > boss.x && ball.x < boss.x + boss.w && ball.y > boss.y && ball.y < boss.y + boss.h) {
+                        ball.dy = -ball.dy; boss.hp -= 1; score += 50; updateUI();
+                    }
+                }
+                ball.x += ball.dx; ball.y += ball.dy;
+            });
+            animationId = requestAnimationFrame(draw);
+        }
+
+        function endGame(title, text, win) {
+            gameActive = false; cancelAnimationFrame(animationId);
+            isWinState = win;
+            document.getElementById('messageTitle').innerText = title;
+            document.getElementById('messageText').innerText = `${text} | Score: ${score}`;
+            messageBox.classList.remove('hidden'); messageBox.classList.add('flex');
+            restartButton.innerText = win ? "Next Level" : "Restart Hub";
+            restartButton.className = win ? "w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition" : "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition";
+        }
+
+        startButton.onclick = () => { startModal.classList.add('hidden'); resetGame(true); draw(); };
+        restartButton.onclick = () => {
+            messageBox.classList.add('hidden'); messageBox.classList.remove('flex');
+            if(isWinState) { resetGame(false); draw(); } 
+            else { showLobby(); startModal.classList.remove('hidden'); }
+        };
+    </script>
+</body>
+</html>
