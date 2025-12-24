@@ -98,7 +98,7 @@
         <div id="breakoutView" class="hidden container mx-auto p-4 flex flex-col items-center">
              <div class="w-full max-w-4xl flex justify-between items-center mb-4">
                 <button onclick="showView('home')" class="text-gray-400 hover:text-white">← กลับหน้าแรก</button>
-                <div id="bStats" class="text-sm font-mono"><span id="bScore">0</span> | Lives: <span id="bLives">3</span></div>
+                <div id="bStats" class="text-sm font-mono"><span id="bScore">Score: 0</span> | Lives: <span id="bLives">3</span></div>
              </div>
              <canvas id="breakoutCanvas" width="800" height="600" class="border border-gray-700 shadow-2xl rounded-lg"></canvas>
         </div>
@@ -164,6 +164,8 @@
         let currentUser = null;
         let currentGameRoom = null;
         let isPlayer1 = false;
+        let myGold = 10;
+        let shopData = [];
 
         // --- CORE LOGIC ---
         window.showView = (view) => {
@@ -174,6 +176,13 @@
             
             if (view === 'breakout') startBreakout();
             else stopBreakout();
+
+            if (view === 'tft') {
+                // Reset lobby if needed
+                document.getElementById('tftLobby').classList.remove('hidden');
+                document.getElementById('tftBoard').classList.add('hidden');
+                document.getElementById('matchingStatus').classList.add('hidden');
+            }
         };
 
         // --- AUTH & INITIALIZATION ---
@@ -192,7 +201,7 @@
         let coins = parseInt(localStorage.getItem('arcade_coins')) || 0;
         const loadCoins = () => { document.getElementById('globalCoins').innerText = coins; };
 
-        // --- BREAKOUT GAME ENGINE (RE-ADDED) ---
+        // --- BREAKOUT GAME ENGINE ---
         const bCanvas = document.getElementById('breakoutCanvas');
         const bCtx = bCanvas.getContext('2d');
         let bAnimId, bBall, bPaddle, bBricks, bScore, bLives;
@@ -262,11 +271,13 @@
         // --- TFT ONLINE LOGIC ---
         const UNIT_TYPES = [
             { id: 'knight', emoji: '🛡️', hp: 100, cost: 1, name: 'อัศวิน' },
-            { id: 'mage', emoji: '🔥', hp: 60, cost: 2, name: 'นักเวทย์' }
+            { id: 'mage', emoji: '🔥', hp: 60, cost: 2, name: 'นักเวทย์' },
+            { id: 'archer', emoji: '🏹', hp: 70, cost: 1, name: 'นักธนู' },
+            { id: 'assassin', emoji: '🗡️', hp: 50, cost: 3, name: 'นักฆ่า' }
         ];
 
         document.getElementById('findMatchBtn').onclick = async () => {
-            if (!db || !currentUser) { alert("Firebase is not connected!"); return; }
+            if (!db || !currentUser) { alert("กรุณารอเชื่อมต่อ Firebase..."); return; }
             document.getElementById('matchingStatus').classList.remove('hidden');
             const roomsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tft_rooms');
             const q = query(roomsRef, where('status', '==', 'waiting'));
@@ -297,15 +308,70 @@
                     document.getElementById('tftLobby').classList.add('hidden');
                     document.getElementById('tftBoard').classList.remove('hidden');
                     renderTFT(data);
+                    if(shopData.length === 0) refreshShop();
                 }
             });
         }
 
+        function refreshShop() {
+            shopData = Array(3).fill(null).map(() => UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)]);
+            const shopEl = document.getElementById('shopUnits');
+            shopEl.innerHTML = '';
+            shopData.forEach((unit, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'flex justify-between items-center p-2 bg-gray-700 rounded hover:bg-gray-600 transition text-xs';
+                btn.innerHTML = `<span>${unit.emoji} ${unit.name}</span> <span class="text-yellow-400">${unit.cost}G</span>`;
+                btn.onclick = () => buyUnit(idx);
+                shopEl.appendChild(btn);
+            });
+        }
+
+        async function buyUnit(idx) {
+            const unit = shopData[idx];
+            if (myGold >= unit.cost) {
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'tft_rooms', currentGameRoom);
+                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tft_rooms'))); // Simplified for context
+                
+                // Get current local board state and find empty slot
+                const boardEl = document.getElementById('playerBoard');
+                const emptySlot = Array.from(boardEl.children).findIndex(c => !c.innerHTML);
+                
+                if (emptySlot !== -1) {
+                    myGold -= unit.cost;
+                    document.getElementById('playerGold').innerText = myGold;
+                    shopData.splice(idx, 1);
+                    refreshShop();
+                    
+                    // Update Firebase Board
+                    const roomDoc = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tft_rooms')));
+                    // In a real app, you'd fetch the latest doc, update its board array locally, then push.
+                    // Here we'll simulate the update for the UI:
+                    const field = isPlayer1 ? 'player1.board' : 'player2.board';
+                    // Fetch current board from UI to update
+                    const currentBoard = Array.from(boardEl.children).map(c => c.innerHTML ? {emoji: c.querySelector('.unit').innerText} : null);
+                    currentBoard[emptySlot] = unit;
+                    await updateDoc(roomRef, { [field]: currentBoard });
+                }
+            }
+        }
+
+        document.getElementById('rerollBtn').onclick = () => {
+            if (myGold >= 2) {
+                myGold -= 2;
+                document.getElementById('playerGold').innerText = myGold;
+                refreshShop();
+            }
+        };
+
         function renderTFT(data) {
-            const myBoard = isPlayer1 ? data.player1.board : data.player2.board;
-            const enemyBoard = isPlayer1 ? data.player2.board : data.player1.board;
-            renderHexBoard('playerBoard', myBoard);
-            renderHexBoard('enemyBoard', enemyBoard);
+            const myData = isPlayer1 ? data.player1 : data.player2;
+            const enemyData = isPlayer1 ? data.player2 : data.player1;
+
+            document.getElementById('playerHp').innerText = myData.hp;
+            document.getElementById('enemyHp').innerText = enemyData ? enemyData.hp : '...';
+            
+            renderHexBoard('playerBoard', myData.board);
+            renderHexBoard('enemyBoard', enemyData ? enemyData.board : Array(14).fill(null));
         }
 
         function renderHexBoard(id, board) {
