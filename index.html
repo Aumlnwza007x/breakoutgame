@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, deleteDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { Trophy, Users, Sword, Shield, Coins, ArrowLeft, Play, LayoutGrid } from 'lucide-react';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, updateDoc } from 'firebase/firestore';
+import { Trophy, Users, Sword, Shield, Coins, ArrowLeft, Play, LayoutGrid, Heart } from 'lucide-react';
 
 // --- Firebase Configuration ---
 const firebaseConfig = JSON.parse(__firebase_config);
@@ -11,7 +11,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'aum-hub-v1';
 
-// --- Game Data Definitions ---
+// --- Game Assets/Data ---
 const CHAMPIONS_POOL = [
   { id: 'knight', name: 'Knight', cost: 1, hp: 600, atk: 50, color: '#3b82f6', icon: '🛡️' },
   { id: 'archer', name: 'Archer', cost: 1, hp: 400, atk: 70, color: '#10b981', icon: '🏹' },
@@ -21,6 +21,385 @@ const CHAMPIONS_POOL = [
   { id: 'assassin', name: 'Assassin', cost: 3, hp: 500, atk: 150, color: '#ec4899', icon: '🔪' },
 ];
 
+// --- Sub-Component: Boss Breakout Engine (Ported from User Code) ---
+const BossBreakout = ({ onBack }) => {
+  const canvasRef = useRef(null);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [showStartModal, setShowStartModal] = useState(true);
+  const [showMessageBox, setShowMessageBox] = useState(false);
+  const [messageData, setMessageData] = useState({ title: '', text: '', isWin: false });
+  const [playerName, setPlayerName] = useState('');
+  const [difficulty, setDifficulty] = useState('medium');
+  
+  // Internal Game State (Ref for high performance/animation loop)
+  const stateRef = useRef({
+    score: 0, lives: 3, level: 1, paddleX: 0, balls: [], bricks: [],
+    bossMode: false, boss: null, bossProjectiles: [], bossLives: 3,
+    gameActive: false, animationId: null, cheatInput: ""
+  });
+
+  const [uiState, setUiState] = useState({ score: 0, lives: 3, level: 1, bossLives: 3, bossMode: false });
+
+  const config = {
+    easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
+    medium: { speed: 6, rows: 4, cols: 8, bossHp: 10 },
+    hard: { speed: 8, rows: 5, cols: 10, bossHp: 15 }
+  };
+
+  const initBricks = () => {
+    const { rows, cols } = config[difficulty];
+    const padding = 10;
+    const offsetTop = 80;
+    const offsetLeft = 35;
+    const canvas = canvasRef.current;
+    const bWidth = (canvas.width - (offsetLeft * 2) - (padding * (cols - 1))) / cols;
+    const bHeight = 25;
+
+    const bricks = [];
+    for (let c = 0; c < cols; c++) {
+      bricks[c] = [];
+      for (let r = 0; r < rows; r++) {
+        bricks[c][r] = { x: 0, y: 0, status: 1, w: bWidth, h: bHeight };
+      }
+    }
+    stateRef.current.bricks = bricks;
+  };
+
+  const spawnBoss = () => {
+    const s = stateRef.current;
+    s.bossMode = true;
+    const baseHp = config[difficulty].bossHp;
+    const currentMaxHp = baseHp + (s.level * 10);
+    const canvas = canvasRef.current;
+
+    s.boss = {
+      x: canvas.width / 2 - 75,
+      y: 60,
+      w: 150,
+      h: 50,
+      hp: currentMaxHp,
+      maxHp: currentMaxHp,
+      dx: 3 + (s.level * 0.8),
+      lastShot: Date.now()
+    };
+    s.bossProjectiles = [];
+    s.bossLives = 3;
+    setUiState(prev => ({ ...prev, bossMode: true, bossLives: 3 }));
+  };
+
+  const resetGame = (fullReset = true) => {
+    const s = stateRef.current;
+    const canvas = canvasRef.current;
+    if (s.animationId) cancelAnimationFrame(s.animationId);
+
+    if (fullReset) {
+      s.level = 1;
+      s.score = 0;
+    } else {
+      s.level++;
+    }
+
+    const settings = config[difficulty];
+    s.lives = 3;
+    s.bossMode = false;
+    s.boss = null;
+    s.bossProjectiles = [];
+    s.cheatInput = "";
+    s.gameActive = true;
+    s.paddleX = (canvas.width - 140) / 2;
+    s.balls = [{
+      x: canvas.width / 2,
+      y: canvas.height - 60,
+      dx: (settings.speed + (s.level * 0.3)) * (Math.random() > 0.5 ? 1 : -1),
+      dy: -(settings.speed + (s.level * 0.3))
+    }];
+
+    initBricks();
+    setUiState({ 
+      score: s.score, 
+      lives: s.lives, 
+      level: s.level, 
+      bossLives: 3, 
+      bossMode: false 
+    });
+    
+    requestAnimationFrame(gameLoop);
+  };
+
+  const endGame = (title, text, win) => {
+    const s = stateRef.current;
+    s.gameActive = false;
+    if (s.animationId) cancelAnimationFrame(s.animationId);
+    
+    setMessageData({ title, text, isWin: win });
+    setShowMessageBox(true);
+  };
+
+  const gameLoop = () => {
+    const s = stateRef.current;
+    if (!s.gameActive) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const paddleWidth = 140;
+    const paddleHeight = 15;
+    const ballRadius = 8;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Draw Bricks or Boss
+    if (!s.bossMode) {
+      let bricksLeft = 0;
+      s.bricks.forEach((col, c) => {
+        col.forEach((b, r) => {
+          if (b.status === 1) {
+            bricksLeft++;
+            const padding = 10;
+            const offsetTop = 80;
+            const offsetLeft = 35;
+            b.x = (c * (b.w + padding)) + offsetLeft;
+            b.y = (r * (b.h + padding)) + offsetTop;
+            ctx.beginPath();
+            ctx.roundRect(b.x, b.y, b.w, b.h, 4);
+            ctx.fillStyle = `hsl(${200 + (r * 25)}, 70%, 50%)`;
+            ctx.fill();
+            ctx.closePath();
+          }
+        });
+      });
+      if (bricksLeft === 0) spawnBoss();
+    } else if (s.boss) {
+      // Boss Body
+      ctx.beginPath();
+      ctx.roundRect(s.boss.x, s.boss.y, s.boss.w, s.boss.h, 10);
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.closePath();
+
+      // Boss HP Bar
+      const hbW = 300;
+      ctx.fillStyle = "#333";
+      ctx.fillRect(canvas.width / 2 - hbW / 2, 25, hbW, 20);
+      ctx.fillStyle = "#f87171";
+      ctx.fillRect(canvas.width / 2 - hbW / 2, 25, (Math.max(0, s.boss.hp) / s.boss.maxHp) * hbW, 20);
+
+      s.boss.x += s.boss.dx;
+      if (s.boss.x < 0 || s.boss.x + s.boss.w > canvas.width) s.boss.dx = -s.boss.dx;
+
+      const now = Date.now();
+      if (now - s.boss.lastShot > (1800 - (s.level * 100))) {
+        s.bossProjectiles.push({ x: s.boss.x + s.boss.w / 2, y: s.boss.y + s.boss.h, dy: 5 + (s.level * 0.4) });
+        s.boss.lastShot = now;
+      }
+
+      // Boss Projectiles
+      s.bossProjectiles.forEach((p, pi) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "#fbbf24";
+        ctx.fill();
+        ctx.closePath();
+        p.y += p.dy;
+
+        if (p.y > canvas.height - paddleHeight - 25 && p.x > s.paddleX && p.x < s.paddleX + paddleWidth) {
+          s.bossProjectiles.splice(pi, 1);
+          s.bossLives--;
+          setUiState(prev => ({ ...prev, bossLives: s.bossLives }));
+          if (s.bossLives <= 0) endGame("คุณพ่ายแพ้!", "เกราะป้องกันพังทลายแล้ว!", false);
+        }
+        if (p.y > canvas.height) s.bossProjectiles.splice(pi, 1);
+      });
+
+      if (s.boss.hp <= 0) {
+        s.boss = null;
+        endGame("บอสพ่ายแพ้!", "บล็อกกำลังฟื้นตัว... เตรียมพร้อมเลเวลถัดไป", true);
+      }
+    }
+
+    // 2. Draw Paddle
+    ctx.beginPath();
+    ctx.roundRect(s.paddleX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight, 8);
+    ctx.fillStyle = "#3b82f6";
+    ctx.fill();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#3b82f6";
+    ctx.closePath();
+    ctx.shadowBlur = 0;
+
+    // 3. Draw & Update Balls
+    s.balls.forEach((ball) => {
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "#FFF";
+      ctx.fill();
+      ctx.closePath();
+
+      if (ball.x + ball.dx > canvas.width - ballRadius || ball.x + ball.dx < ballRadius) ball.dx = -ball.dx;
+      if (ball.y + ball.dy < ballRadius) ball.dy = -ball.dy;
+
+      // Paddle Collision
+      if (ball.y + ball.dy > canvas.height - paddleHeight - 35) {
+        if (ball.x > s.paddleX && ball.x < s.paddleX + paddleWidth) {
+          ball.dy = -Math.abs(ball.dy);
+          let hitPoint = (ball.x - (s.paddleX + paddleWidth / 2)) / (paddleWidth / 2);
+          ball.dx = hitPoint * (config[difficulty].speed + (s.level * 0.4));
+        } else if (ball.y > canvas.height) {
+          s.lives--;
+          setUiState(prev => ({ ...prev, lives: s.lives }));
+          if (s.lives <= 0) {
+            endGame("GAME OVER", "เลเวลที่คุณไปถึง: " + s.level, false);
+          } else {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height - 60;
+            ball.dy = -(config[difficulty].speed + (s.level * 0.4));
+          }
+        }
+      }
+
+      // Brick/Boss Collision
+      if (!s.bossMode) {
+        s.bricks.forEach(col => {
+          col.forEach(b => {
+            if (b.status === 1 && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+              ball.dy = -ball.dy;
+              b.status = 0;
+              s.score += 10;
+              setUiState(prev => ({ ...prev, score: s.score }));
+            }
+          });
+        });
+      } else if (s.boss) {
+        if (ball.x > s.boss.x && ball.x < s.boss.x + s.boss.w && ball.y > s.boss.y && ball.y < s.boss.y + s.boss.h) {
+          ball.dy = -ball.dy;
+          s.boss.hp -= 1;
+          s.score += 50;
+          setUiState(prev => ({ ...prev, score: s.score }));
+        }
+      }
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+    });
+
+    s.animationId = requestAnimationFrame(gameLoop);
+  };
+
+  const handleInput = (clientX) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const x = (clientX - rect.left) * scaleX - 70; // 140 / 2
+    stateRef.current.paddleX = Math.max(0, Math.min(x, canvas.width - 140));
+  };
+
+  // Keyboard Cheats
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (!stateRef.current.gameActive) return;
+      if (e.key >= '0' && e.key <= '9') {
+        stateRef.current.cheatInput += e.key;
+        if (stateRef.current.cheatInput.includes("1234")) {
+          stateRef.current.cheatInput = "";
+          if (stateRef.current.bossMode && stateRef.current.boss) {
+            stateRef.current.boss.hp = 0;
+          } else if (!stateRef.current.bossMode) {
+            stateRef.current.bricks.forEach(col => col.forEach(b => b.status = 0));
+          }
+        }
+        if (stateRef.current.cheatInput.length > 4) stateRef.current.cheatInput = stateRef.current.cheatInput.slice(-4);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center gap-4 w-full max-w-4xl mx-auto overflow-hidden">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500">Breakout: Boss Evolution</h1>
+        <p className="text-xs text-slate-400 font-mono uppercase tracking-widest">Level {uiState.level}</p>
+      </div>
+
+      <div className="relative w-full group">
+        <canvas 
+          ref={canvasRef} 
+          width={800} height={600} 
+          onMouseMove={(e) => handleInput(e.clientX)}
+          onTouchMove={(e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }}
+          className="w-full bg-black rounded-xl border border-slate-700 shadow-2xl touch-none"
+        />
+
+        {/* Start Modal */}
+        {showStartModal && (
+          <div className="absolute inset-0 bg-black/90 flex items-center justify-center rounded-xl z-10 p-4 backdrop-blur-sm">
+            <div className="bg-slate-900 p-8 rounded-2xl border border-slate-700 w-full max-w-sm text-center shadow-2xl">
+              <h2 className="text-2xl font-bold mb-6 text-white">เตรียมตัวให้พร้อม</h2>
+              <input 
+                type="text" 
+                placeholder="ใส่ชื่อของคุณ" 
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="w-full p-3 mb-4 rounded-lg bg-slate-800 border border-slate-700 text-center text-white focus:ring-2 ring-blue-500 outline-none" 
+              />
+              <select 
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="w-full p-3 mb-6 rounded-lg bg-slate-800 border border-slate-700 text-white cursor-pointer"
+              >
+                <option value="easy">ง่าย (Easy)</option>
+                <option value="medium">ปานกลาง (Medium)</option>
+                <option value="hard">ยาก (Hard)</option>
+              </select>
+              <button 
+                onClick={() => { setShowStartModal(false); resetGame(true); }}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-all shadow-lg"
+              >
+                เริ่มเกม
+              </button>
+              <p className="text-[10px] text-slate-500 mt-4 uppercase">* เคลียร์บล็อกเพื่อเรียกบอส / โค้ดลับ 1234</p>
+            </div>
+          </div>
+        )}
+
+        {/* Message Box */}
+        {showMessageBox && (
+          <div className="absolute inset-0 bg-black/90 flex items-center justify-center rounded-xl z-20 p-4">
+            <div className="bg-slate-900 p-8 rounded-2xl border border-slate-700 w-full max-w-sm text-center">
+              <h2 className="text-3xl font-black mb-2 text-white uppercase tracking-tighter">{messageData.title}</h2>
+              <p className="text-slate-400 mb-6">{messageData.text} | Score: {uiState.score}</p>
+              <button 
+                onClick={() => {
+                  setShowMessageBox(false);
+                  if(messageData.isWin) resetGame(false);
+                  else setShowStartModal(true);
+                }}
+                className={`w-full py-3 rounded-lg font-bold transition-all ${messageData.isWin ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'}`}
+              >
+                {messageData.isWin ? `ลุยเลเวล ${uiState.level + 1}` : "ลองใหม่อีกครั้ง"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:flex md:justify-between items-center w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 gap-4">
+        <div className="text-xs uppercase font-bold text-slate-400">Name: <span className="text-blue-400">{playerName || "-"}</span></div>
+        <div className="text-xs uppercase font-bold text-slate-400">Score: <span className="text-white">{uiState.score}</span></div>
+        <div className="text-xs uppercase font-bold text-slate-400 flex items-center gap-1">
+          Lives: <span className="text-red-500 flex items-center">{Array.from({length: uiState.lives}).map((_, i)=><Heart key={i} className="w-3 h-3 fill-current inline-block ml-0.5" />)}</span>
+        </div>
+        {uiState.bossMode && (
+          <div className="text-xs uppercase font-bold text-slate-400">Boss Shield: <span className="text-yellow-500">{uiState.bossLives}/3</span></div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Main Hub App ---
 export default function App() {
   const [view, setView] = useState('lobby');
   const [user, setUser] = useState(null);
@@ -30,90 +409,41 @@ export default function App() {
   const [myBoard, setMyBoard] = useState([]);
   const [shop, setShop] = useState([]);
 
-  // 1. Auth & Initial Load
   useEffect(() => {
     const login = async () => {
-      await signInAnonymously(auth);
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
     };
     login();
     return onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser(u);
-        refreshShop();
+        const newShop = Array.from({ length: 5 }, () => CHAMPIONS_POOL[Math.floor(Math.random() * CHAMPIONS_POOL.length)]);
+        setShop(newShop);
       }
     });
   }, []);
 
-  // 2. Online Listener (Listen to Room updates)
   useEffect(() => {
     if (!user || !roomData?.id) return;
-
     const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomData.id);
-    const unsubscribe = onSnapshot(roomRef, (doc) => {
-      if (doc.exists()) {
-        setRoomData({ id: doc.id, ...doc.data() });
-      }
+    return onSnapshot(roomRef, (doc) => {
+      if (doc.exists()) setRoomData({ id: doc.id, ...doc.data() });
     }, (err) => console.error("Firestore Error:", err));
-
-    return () => unsubscribe();
   }, [user, roomData?.id]);
 
-  // --- TFT Game Logic ---
-  const refreshShop = () => {
-    const newShop = Array.from({ length: 5 }, () => 
-      CHAMPIONS_POOL[Math.floor(Math.random() * CHAMPIONS_POOL.length)]
-    );
-    setShop(newShop);
-  };
-
-  const buyChampion = (champ, index) => {
-    if (gold >= champ.cost && myBench.length < 8) {
-      setGold(prev => prev - champ.cost);
-      setMyBench([...myBench, { ...champ, instanceId: Math.random().toString(36).substr(2, 9) }]);
-      const newShop = [...shop];
-      newShop[index] = null;
-      setShop(newShop);
-    }
-  };
-
-  const joinGame = async () => {
+  const joinTFT = async () => {
     if (!user) return;
-    const roomId = "online-lobby-01"; // Simplification for demo: everyone joins one room
+    const roomId = "online-lobby-01";
     const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-    
-    const initialPlayerState = {
-      uid: user.uid,
-      name: `Player ${user.uid.substr(0, 4)}`,
-      hp: 100,
-      board: []
-    };
-
-    await setDoc(roomRef, {
-      players: { [user.uid]: initialPlayerState },
-      lastUpdated: Date.now()
-    }, { merge: true });
-
+    await setDoc(roomRef, { players: { [user.uid]: { uid: user.uid, name: `Player ${user.uid.substr(0,4)}`, board: [] } }, lastUpdated: Date.now() }, { merge: true });
     setRoomData({ id: roomId });
     setView('tft');
   };
 
-  const updateOnlineBoard = async (newBoard) => {
-    if (!user || !roomData?.id) return;
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomData.id);
-    await updateDoc(roomRef, {
-      [`players.${user.uid}.board`]: newBoard,
-      lastUpdated: Date.now()
-    });
-  };
-
-  const placeOnBoard = (champ, index) => {
-    const newBoard = [...myBoard, champ];
-    setMyBoard(newBoard);
-    setMyBench(myBench.filter((_, i) => i !== index));
-    updateOnlineBoard(newBoard);
-  };
-
-  // --- UI Components ---
   if (view === 'lobby') {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950">
@@ -121,163 +451,82 @@ export default function App() {
           <h1 className="text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-purple-400 to-pink-500">
             AUM HUB
           </h1>
-          <p className="text-slate-400 mt-2 tracking-[0.3em] uppercase text-sm">Next-Gen Gaming Hub</p>
+          <p className="text-slate-400 mt-2 tracking-[0.3em] uppercase text-xs font-bold">The Premier Gaming Platform</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
-          <button onClick={() => setView('breakout')} className="group relative overflow-hidden bg-slate-900/50 border border-slate-800 p-8 rounded-3xl transition-all hover:border-blue-500 hover:shadow-[0_0_30px_-10px_rgba(59,130,246,0.5)]">
-            <div className="absolute top-0 left-0 w-2 h-full bg-blue-500" />
+          <button onClick={() => setView('breakout')} className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-8 rounded-3xl transition-all hover:border-blue-500/50 hover:bg-slate-900/60 hover:shadow-[0_0_40px_-15px_rgba(59,130,246,0.3)]">
+            <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
             <LayoutGrid className="w-12 h-12 text-blue-400 mb-4 group-hover:scale-110 transition-transform" />
             <h2 className="text-2xl font-bold text-left">Breakout Boss</h2>
-            <p className="text-slate-400 text-left text-sm mt-2">เล่นคนเดียว ฝ่าด่านบอสสุดโหด</p>
+            <p className="text-slate-500 text-left text-xs mt-2 font-medium">Evolution Edition: Level, Boss, Cheats</p>
           </button>
 
-          <button onClick={joinGame} className="group relative overflow-hidden bg-slate-900/50 border border-slate-800 p-8 rounded-3xl transition-all hover:border-purple-500 hover:shadow-[0_0_30px_-10px_rgba(168,85,247,0.5)]">
-            <div className="absolute top-0 left-0 w-2 h-full bg-purple-500" />
+          <button onClick={joinTFT} className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-8 rounded-3xl transition-all hover:border-purple-500/50 hover:bg-slate-900/60 hover:shadow-[0_0_40px_-15px_rgba(168,85,247,0.3)]">
+            <div className="absolute top-0 left-0 w-1.5 h-full bg-purple-500" />
             <Users className="w-12 h-12 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
             <h2 className="text-2xl font-bold text-left">TFT Online Arena</h2>
-            <p className="text-slate-400 text-left text-sm mt-2">ประชันกลยุทธ์ออนไลน์ 1v1 กับผู้เล่นอื่น</p>
+            <p className="text-slate-500 text-left text-xs mt-2 font-medium">Auto-battler Strategy Online V1</p>
           </button>
         </div>
       </div>
     );
   }
 
-  if (view === 'tft') {
-    const otherPlayers = roomData?.players ? Object.values(roomData.players).filter(p => p.uid !== user?.uid) : [];
-
-    return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col p-4 font-sans">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <button onClick={() => setView('lobby')} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700">
-            <ArrowLeft className="w-6 h-6" />
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col p-4">
+      <div className="max-w-6xl mx-auto w-full flex flex-col flex-1">
+        <div className="flex justify-between items-center mb-6">
+          <button onClick={() => setView('lobby')} className="p-3 bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors border border-slate-800 group">
+            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
           </button>
-          <div className="flex gap-4">
-            <div className="bg-slate-800 px-4 py-1 rounded-full border border-yellow-500/50 flex items-center gap-2">
-              <Coins className="w-4 h-4 text-yellow-500" />
-              <span className="font-bold text-yellow-500">{gold}</span>
+          {view === 'tft' && (
+            <div className="flex gap-4">
+              <div className="bg-slate-900 px-6 py-2 rounded-xl border border-yellow-500/30 flex items-center gap-2">
+                <Coins className="w-4 h-4 text-yellow-500" />
+                <span className="font-black text-yellow-500">{gold}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 overflow-hidden">
-          {/* Main Board Area */}
-          <div className="lg:col-span-3 flex flex-col gap-4">
-            {/* Enemy Display (Online) */}
-            <div className="bg-slate-900/50 p-4 rounded-2xl border border-red-500/20">
-              <div className="text-[10px] text-red-400 mb-2 uppercase font-bold tracking-widest flex items-center gap-2">
-                <Sword className="w-3 h-3" /> Enemy Board (Real-time)
-              </div>
-              <div className="grid grid-cols-6 gap-2 h-32">
-                {otherPlayers[0]?.board?.map((c, i) => (
-                  <div key={i} className="bg-slate-800 rounded-lg flex items-center justify-center text-2xl border border-slate-700">
-                    {c.icon}
-                  </div>
-                ))}
-                {!otherPlayers.length && <div className="col-span-6 flex items-center justify-center text-slate-600 text-sm italic">รอผู้เล่นอื่นเข้าร่วม...</div>}
-              </div>
-            </div>
-
-            {/* Player Board */}
-            <div className="flex-1 bg-slate-900/80 p-6 rounded-3xl border border-blue-500/20 relative">
-               <div className="text-[10px] text-blue-400 mb-2 uppercase font-bold tracking-widest flex items-center gap-2">
-                <Shield className="w-3 h-3" /> Your Board
-              </div>
-              <div className="grid grid-cols-6 gap-4 h-64 content-center">
-                {myBoard.map((c, i) => (
-                  <div key={i} className="relative group aspect-square bg-slate-800 rounded-xl flex items-center justify-center text-4xl shadow-xl border-b-4" style={{borderColor: c.color}}>
-                    {c.icon}
-                    <div className="absolute -top-2 -right-2 bg-blue-500 text-[8px] px-1 rounded uppercase font-bold">{c.name}</div>
-                  </div>
-                ))}
-                {Array.from({ length: 12 - myBoard.length }).map((_, i) => (
-                  <div key={i} className="aspect-square border-2 border-dashed border-slate-800 rounded-xl" />
-                ))}
-              </div>
-            </div>
-
-            {/* Bench */}
-            <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-              <div className="text-[10px] text-slate-500 mb-2 uppercase font-bold tracking-widest">Bench (สำรอง)</div>
-              <div className="flex gap-2">
-                {myBench.map((c, i) => (
-                  <button key={i} onClick={() => placeOnBoard(c, i)} className="w-16 h-16 bg-slate-800 rounded-lg flex items-center justify-center text-2xl hover:bg-slate-700 transition-colors border-b-2" style={{borderColor: c.color}}>
-                    {c.icon}
-                  </button>
-                ))}
-                {Array.from({ length: 8 - myBench.length }).map((_, i) => (
-                  <div key={i} className="w-16 h-16 bg-slate-950/50 border border-slate-800 rounded-lg" />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Shop & Side Info */}
-          <div className="lg:col-span-1 flex flex-col gap-4">
-             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
-                <h3 className="font-bold mb-4 flex items-center gap-2">
-                  <Coins className="w-4 h-4 text-yellow-500" /> ร้านค้าตัวละคร
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {shop.map((c, i) => c ? (
-                    <button 
-                      key={i} 
-                      onClick={() => buyChampion(c, i)}
-                      disabled={gold < c.cost}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition-all ${gold >= c.cost ? 'bg-slate-800 border-slate-700 hover:border-yellow-500' : 'opacity-50 bg-slate-900 border-transparent cursor-not-allowed'}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{c.icon}</span>
-                        <div className="text-left">
-                          <p className="text-xs font-bold">{c.name}</p>
-                          <p className="text-[10px] text-slate-400">{c.cost} บาท</p>
+        {view === 'breakout' ? <BossBreakout /> : (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 items-start">
+             {/* Simple TFT UI for reference */}
+             <div className="lg:col-span-3 space-y-6">
+                <div className="bg-slate-900/40 p-4 rounded-2xl border border-red-500/10">
+                   <h4 className="text-[10px] text-red-500 font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><Sword className="w-3 h-3"/> Enemy View</h4>
+                   <div className="h-32 border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-slate-700 italic text-sm">Waiting for opponent...</div>
+                </div>
+                <div className="bg-slate-900/60 p-8 rounded-3xl border border-blue-500/10 min-h-[400px]">
+                   <h4 className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-6 flex items-center gap-2"><Shield className="w-3 h-3"/> Your Battleground</h4>
+                   <div className="grid grid-cols-5 gap-4">
+                      {myBoard.map((c, i) => (
+                        <div key={i} className="aspect-square bg-slate-800 rounded-2xl flex items-center justify-center text-5xl shadow-2xl border-b-4" style={{borderColor: c.color}}>{c.icon}</div>
+                      ))}
+                      {Array.from({length: 10 - myBoard.length}).map((_, i) => (
+                        <div key={i} className="aspect-square border-2 border-dashed border-slate-800 rounded-2xl" />
+                      ))}
+                   </div>
+                </div>
+             </div>
+             <div className="lg:col-span-1 bg-slate-900 p-6 rounded-3xl border border-slate-800">
+                <h4 className="text-xs font-bold uppercase text-slate-400 mb-4">Shop</h4>
+                <div className="space-y-3">
+                   {shop.map((c, i) => c && (
+                     <button key={i} onClick={()=>{ if(gold>=c.cost){ setGold(g=>g-c.cost); setMyBench([...myBench, c]); const ns=[...shop]; ns[i]=null; setShop(ns); }}} className="w-full p-4 bg-slate-800 rounded-xl flex items-center justify-between border border-transparent hover:border-yellow-500 transition-all">
+                        <span className="text-3xl">{c.icon}</span>
+                        <div className="text-right">
+                           <div className="text-[10px] font-bold text-slate-400 uppercase">{c.name}</div>
+                           <div className="text-yellow-500 font-black">${c.cost}</div>
                         </div>
-                      </div>
-                      <div className="text-yellow-500 font-bold">${c.cost}</div>
-                    </button>
-                  ) : (
-                    <div key={i} className="p-3 bg-slate-950 rounded-xl border border-dashed border-slate-800 text-[10px] text-center text-slate-700">SOLD OUT</div>
-                  ))}
-                </div>
-                <button onClick={() => { if(gold>=2){ setGold(g=>g-2); refreshShop(); }}} className="w-full mt-4 py-2 bg-blue-600 rounded-lg font-bold text-xs hover:bg-blue-500 transition-colors">
-                  รีเฟรชร้านค้า (2 บาท)
-                </button>
-             </div>
-
-             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex-1">
-                <h3 className="font-bold mb-4 text-xs uppercase text-slate-500 flex items-center gap-2">
-                  <Users className="w-3 h-3" /> ผู้เล่นคนอื่นในห้อง
-                </h3>
-                <div className="space-y-2">
-                  {otherPlayers.map((p, i) => (
-                    <div key={i} className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-800">
-                      <span className="text-xs">{p.name}</span>
-                      <div className="w-20 bg-slate-800 h-2 rounded-full overflow-hidden">
-                        <div className="bg-green-500 h-full" style={{width: `${p.hp}%`}} />
-                      </div>
-                    </div>
-                  ))}
+                     </button>
+                   ))}
                 </div>
              </div>
           </div>
-        </div>
+        )}
       </div>
-    );
-  }
-
-  // --- Breakout View (Minimal placeholder for integration) ---
-  if (view === 'breakout') {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
-        <button onClick={() => setView('lobby')} className="absolute top-4 left-4 p-2 bg-slate-800 rounded-full"><ArrowLeft /></button>
-        <h2 className="text-2xl font-bold mb-4 text-blue-400">Breakout Boss Engine</h2>
-        <div className="bg-slate-900 p-12 rounded-3xl border border-slate-800 text-slate-500 italic">
-          [ตัวเกม Breakout ของคุณถูกเชื่อมต่อไว้ที่นี่]
-        </div>
-      </div>
-    );
-  }
-
-  return null;
+    </div>
+  );
 }
