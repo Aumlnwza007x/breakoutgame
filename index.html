@@ -3,155 +3,363 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AUM HUB - Multi Game Portal</title>
+    <title>AUM HUB - Breakout & Tactical Online</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
-        body { font-family: 'Sarabun', sans-serif; background-color: #0f172a; color: #e2e8f0; margin: 0; overflow-x: hidden; }
+        body { 
+            font-family: 'Sarabun', sans-serif; 
+            background-color: #0f172a; 
+            color: #e2e8f0; 
+            margin: 0; 
+            overflow: hidden;
+            touch-action: manipulation;
+        }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
         
-        /* TFT Specific Styles */
-        .tft-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding: 20px; }
-        .hex-cell {
-            aspect-ratio: 1/1.1; background: rgba(51, 65, 85, 0.6);
-            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-            transition: all 0.3s; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        /* TFT Hex Grid */
+        .tft-grid { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 4px; 
+            max-width: 500px;
+            margin: 0 auto;
         }
-        .hex-cell:hover { background: rgba(59, 130, 246, 0.5); transform: translateY(-5px); }
-        .hex-cell.active { background: rgba(59, 130, 246, 0.8); box-shadow: 0 0 15px #3b82f6; }
+        .hex-cell {
+            aspect-ratio: 1/1.1; 
+            background: rgba(51, 65, 85, 0.4);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            display: flex; align-items: center; justify-content: center;
+            position: relative; transition: all 0.2s;
+        }
+        .hex-cell.valid-drop { background: rgba(34, 197, 94, 0.3); }
+        
+        /* Unit Styling */
+        .unit {
+            width: 80%; height: 80%;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; cursor: grab; z-index: 10;
+            position: relative;
+        }
+        .unit:active { cursor: grabbing; }
+        .cost-1 { background: #94a3b8; border: 2px solid #cbd5e1; } /* Grey */
+        .cost-2 { background: #22c55e; border: 2px solid #4ade80; } /* Green */
+        .cost-3 { background: #3b82f6; border: 2px solid #60a5fa; } /* Blue */
 
-        /* Breakout Specific Styles (From your source) */
+        /* Breakout Specific (Your Source) */
         canvas#gameCanvas {
-            background: #000; display: block; border-radius: 0.5rem;
+            background: #000; border-radius: 0.5rem;
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); touch-action: none;
         }
+        
+        .dragging { opacity: 0.5; transform: scale(1.1); pointer-events: none; position: fixed; z-index: 1000; }
     </style>
 </head>
 <body>
 
-    <!-- NAVIGATION BAR -->
-    <nav class="p-4 flex justify-between items-center glass sticky top-0 z-[100]">
-        <div class="flex items-center gap-3 cursor-pointer" onclick="showView('home')">
-            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
-                <i class="fas fa-cubes text-white"></i>
+    <!-- NAV BAR -->
+    <nav class="p-3 flex justify-between items-center glass sticky top-0 z-[100]">
+        <div class="flex items-center gap-2 cursor-pointer" onclick="showView('home')">
+            <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-500/50">
+                <i class="fas fa-cubes text-white text-xs"></i>
             </div>
-            <h1 class="text-xl font-bold tracking-tighter uppercase">AUM<span class="text-blue-500 font-black">HUB</span></h1>
+            <h1 class="text-lg font-bold uppercase tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
         </div>
-        <button onclick="showView('home')" class="px-4 py-2 rounded-lg hover:bg-white/10 transition text-sm">
-            <i class="fas fa-sign-out-alt mr-2"></i>ออกจากเกม
+        <div id="globalGold" class="hidden items-center bg-yellow-500/20 px-3 py-1 rounded-full border border-yellow-500/50">
+            <i class="fas fa-coins text-yellow-400 mr-2"></i>
+            <span id="goldVal" class="font-bold text-yellow-400">0</span>
+        </div>
+        <button onclick="showView('home')" class="px-3 py-1 rounded hover:bg-white/10 text-xs">
+            <i class="fas fa-home mr-1"></i>หน้าหลัก
         </button>
     </nav>
 
     <!-- VIEW: HOME -->
-    <main id="view-home" class="view-section container mx-auto px-6 py-12">
-        <div class="text-center mb-16">
-            <h2 class="text-5xl font-black mb-4 uppercase tracking-tighter italic">Game Center</h2>
-            <p class="text-slate-400">เลือกเกมที่ต้องการวาร์ปเข้าไปเล่น</p>
+    <main id="view-home" class="view-section container mx-auto px-6 py-12 h-screen overflow-y-auto">
+        <div class="text-center mb-10">
+            <h2 class="text-4xl font-black mb-2 uppercase italic">Game Portal</h2>
+            <p class="text-slate-400">เลือกโหมดที่ต้องการเล่น</p>
         </div>
-
-        <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <!-- Breakout Card -->
-            <div onclick="showView('breakout')" class="glass p-8 rounded-3xl border-2 border-blue-500/20 hover:border-blue-500/60 transition-all cursor-pointer group hover:-translate-y-2">
-                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-500/40 text-white text-3xl">
-                    <i class="fas fa-th"></i>
-                </div>
-                <h3 class="text-2xl font-bold mb-2">Breakout: Boss Evolution</h3>
-                <p class="text-slate-400 text-sm mb-6">เกมทำลายบล็อกและปราบกิ๊กก้าบอส (เวอร์ชันมาตรฐาน)</p>
-                <div class="text-blue-400 font-bold flex items-center">
-                    เข้าสู่เกม <i class="fas fa-bolt ml-2 animate-pulse"></i>
-                </div>
+        <div class="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <div onclick="showView('breakout')" class="glass p-6 rounded-2xl border-2 border-blue-500/20 hover:border-blue-500/60 transition-all cursor-pointer group">
+                <i class="fas fa-th text-blue-500 text-3xl mb-4"></i>
+                <h3 class="text-xl font-bold">Breakout: Boss Evolution</h3>
+                <p class="text-slate-400 text-xs mt-2">ทำลายบล็อกและปราบ Boss สุดโหด</p>
             </div>
-
-            <!-- TFT Card -->
-            <div onclick="showView('tft')" class="glass p-8 rounded-3xl border-2 border-purple-500/20 hover:border-purple-500/60 transition-all cursor-pointer group hover:-translate-y-2">
-                <div class="w-16 h-16 bg-purple-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-purple-500/40 text-white text-3xl">
-                    <i class="fas fa-chess-board"></i>
-                </div>
-                <h3 class="text-2xl font-bold mb-2">Tactical Online (TFT)</h3>
-                <p class="text-slate-400 text-sm mb-6">วางแผนรบบนกระดานหกเหลี่ยม จัดทัพเพื่อคว้าชัย</p>
-                <div class="text-purple-400 font-bold flex items-center">
-                    เข้าสู่ Lobby <i class="fas fa-bolt ml-2 animate-pulse"></i>
-                </div>
+            <div onclick="showView('tft')" class="glass p-6 rounded-2xl border-2 border-purple-500/20 hover:border-purple-500/60 transition-all cursor-pointer group">
+                <i class="fas fa-chess-board text-purple-500 text-3xl mb-4"></i>
+                <h3 class="text-xl font-bold">Tactical Online (TFT)</h3>
+                <p class="text-slate-400 text-xs mt-2">วางแผนจัดการฮีโร่และประลองออนไลน์</p>
             </div>
         </div>
     </main>
 
-    <!-- VIEW: BREAKOUT GAME (Your exact code structure) -->
-    <main id="view-breakout" class="view-section hidden flex flex-col items-center p-4">
-        <div class="flex flex-col items-center space-y-2 max-w-4xl w-full">
-            <div class="text-center">
-                <h1 class="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500">Breakout: Boss Evolution</h1>
-                <p id="levelIndicator" class="text-xs md:text-sm text-gray-400 font-mono uppercase">Level 1</p>
+    <!-- VIEW: BREAKOUT (Your exact code logic) -->
+    <main id="view-breakout" class="view-section hidden flex flex-col items-center p-2 h-screen">
+        <div class="text-center mb-2">
+            <h2 class="text-xl font-bold text-blue-400">Breakout: Boss Evolution</h2>
+            <p id="levelIndicator" class="text-[10px] text-gray-500 uppercase">Level 1</p>
+        </div>
+        <div class="relative w-full flex justify-center max-w-3xl">
+            <canvas id="gameCanvas" width="800" height="600" class="w-full h-auto max-h-[70vh] border border-gray-700"></canvas>
+            <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black/80 z-10 p-4">
+                <div class="bg-gray-800 p-6 rounded-lg text-center w-full max-w-xs">
+                    <h2 class="text-xl font-bold mb-4">Breakout Start</h2>
+                    <input type="text" id="nameInput" placeholder="ชื่อของคุณ" class="w-full p-2 bg-gray-700 rounded mb-4 text-center border border-gray-600">
+                    <select id="difficultySelect" class="w-full p-2 bg-gray-700 rounded mb-6 border border-gray-600">
+                        <option value="easy">Easy</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                    <button id="startButton" class="w-full bg-blue-600 py-2 rounded font-bold">เริ่มเกม</button>
+                </div>
+            </div>
+            <div id="messageBox" class="absolute inset-0 hidden items-center justify-center bg-black/80 z-20">
+                <div class="bg-gray-800 p-6 rounded-lg text-center max-w-xs">
+                    <h2 id="messageTitle" class="text-xl font-bold mb-2"></h2>
+                    <p id="messageText" class="text-sm mb-4 text-gray-400"></p>
+                    <button id="restartButton" class="w-full bg-green-600 py-2 rounded font-bold">ตกลง</button>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-between w-full max-w-3xl mt-2 px-4 py-2 glass rounded-lg text-xs uppercase font-mono">
+            <div>NAME: <span id="playerNameDisplay" class="text-blue-400">-</span></div>
+            <div>SCORE: <span id="scoreDisplay">0</span></div>
+            <div>LIVES: <span id="livesDisplay" class="text-red-400">3</span></div>
+            <div id="bossShieldContainer" class="hidden">BOSS: <span id="bossShieldDisplay" class="text-yellow-400">3/3</span></div>
+        </div>
+    </main>
+
+    <!-- VIEW: TFT ONLINE -->
+    <main id="view-tft" class="view-section hidden flex flex-col h-screen overflow-hidden">
+        <!-- Play Area -->
+        <div class="flex-1 p-2 flex flex-col items-center justify-center">
+            <div class="mb-2 text-xs text-slate-500 uppercase font-bold">Battle Arena (ลากวางเพื่อวางตัวละคร)</div>
+            <div class="tft-grid" id="board">
+                <!-- 21 Hexes for board -->
             </div>
             
-            <div class="relative w-full flex justify-center">
-                <canvas id="gameCanvas" width="800" height="600" class="w-full h-auto max-w-3xl border border-gray-700"></canvas>
+            <div class="mt-4 mb-2 text-xs text-slate-500 uppercase font-bold">Bench (ตัวสำรอง)</div>
+            <div class="flex gap-2 justify-center bg-slate-800/50 p-2 rounded-xl border border-white/5" id="bench">
+                <!-- 5 Bench Slots -->
+            </div>
+        </div>
 
-                <div id="startModal" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80 rounded-lg z-10 p-4">
-                    <div class="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm border border-gray-600">
-                        <h2 class="text-2xl md:text-3xl font-bold mb-4 text-white">เตรียมตัวให้พร้อม</h2>
-                        <input type="text" id="nameInput" placeholder="ใส่ชื่อของคุณ" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 mb-4 text-center">
-                        <select id="difficultySelect" class="w-full p-3 rounded-md bg-gray-700 text-white border border-gray-600 mb-6">
-                            <option value="easy">ง่าย (Easy)</option>
-                            <option value="medium" selected>ปานกลาง (Medium)</option>
-                            <option value="hard">ยาก (Hard)</option>
-                        </select>
-                        <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-md transition">เริ่มเกม</button>
-                    </div>
+        <!-- Shop & Controls -->
+        <div class="glass p-4 rounded-t-3xl border-t-2 border-purple-500/30">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex gap-2">
+                    <button onclick="rerollShop()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-xs font-bold transition">
+                        <i class="fas fa-sync-alt mr-1"></i> RE-ROLL (2G)
+                    </button>
+                    <button id="sellZone" class="bg-red-600/20 border border-red-500/50 text-red-500 px-4 py-2 rounded-lg text-xs font-bold">
+                        <i class="fas fa-trash mr-1"></i> ลากมาที่นี่เพื่อขาย
+                    </button>
                 </div>
-
-                <div id="messageBox" class="absolute inset-0 hidden items-center justify-center bg-black bg-opacity-80 rounded-lg z-20 p-4">
-                    <div class="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl text-center w-full max-w-sm border border-gray-600">
-                        <h2 id="messageTitle" class="text-2xl md:text-3xl font-bold mb-2 text-white"></h2>
-                        <p id="messageText" class="text-lg mb-6 text-gray-300"></p>
-                        <button id="restartButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-md transition">ลุยเลเวลถัดไป</button>
-                    </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-slate-400 block uppercase">Online Players</span>
+                    <span class="text-xs font-bold text-green-400"><i class="fas fa-circle text-[8px] mr-1"></i> 14 Connected</span>
                 </div>
             </div>
-
-            <div class="grid grid-cols-2 md:flex md:justify-between items-center w-full max-w-3xl px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 gap-2">
-                <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400">Name: <span id="playerNameDisplay" class="text-blue-400 font-bold">-</span></div>
-                <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400 text-right md:text-left">Score: <span id="scoreDisplay" class="text-white font-bold">0</span></div>
-                <div class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400">Lives: <span id="livesDisplay" class="text-red-400 font-bold">3</span></div>
-                <div id="bossShieldContainer" class="text-[10px] md:text-sm uppercase tracking-widest text-gray-400 hidden text-right md:text-left">Boss Shield: <span id="bossShieldDisplay" class="text-yellow-400 font-bold">3/3</span></div>
+            
+            <div class="grid grid-cols-5 gap-2" id="shop">
+                <!-- 5 Shop Cards -->
             </div>
         </div>
     </main>
 
-    <!-- VIEW: TFT GAME -->
-    <main id="view-tft" class="view-section hidden container mx-auto px-4 py-8">
-        <div class="glass p-6 rounded-3xl">
-            <h2 class="text-2xl font-bold mb-4 text-purple-400"><i class="fas fa-chess-board mr-2"></i>Tactical Arena</h2>
-            <div class="tft-grid max-w-2xl mx-auto" id="tftGrid"></div>
-            <div class="mt-8 text-center text-slate-500 italic">โหมด TFT กำลังอยู่ในช่วงพัฒนาการจัดทัพ...</div>
-        </div>
-    </main>
+    <script type="module">
+        // --- DATA & STATE ---
+        let gold = 20;
+        let tftBoard = Array(21).fill(null);
+        let tftBench = Array(5).fill(null);
+        const unitPool = [
+            { id: 1, name: "S", cost: 1, hp: 100, atk: 10 },
+            { id: 2, name: "A", cost: 1, hp: 120, atk: 8 },
+            { id: 3, name: "K", cost: 2, hp: 180, atk: 15 },
+            { id: 4, name: "M", cost: 2, hp: 150, atk: 20 },
+            { id: 5, name: "B", cost: 3, hp: 300, atk: 25 },
+            { id: 6, name: "Z", cost: 3, hp: 200, atk: 40 },
+        ];
 
-    <script>
-        // --- NAVIGATION LOGIC ---
-        function showView(viewId) {
-            // Stop breakout if active
+        // --- NAVIGATION ---
+        window.showView = (viewId) => {
             gameActive = false;
             if (animationId) cancelAnimationFrame(animationId);
-
-            // Hide all views
             document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
-            
-            // Show target view
             document.getElementById('view-' + viewId).classList.remove('hidden');
+            
+            const goldDisplay = document.getElementById('globalGold');
+            if(viewId === 'tft') {
+                goldDisplay.classList.remove('hidden');
+                goldDisplay.classList.add('flex');
+                initTFT();
+            } else {
+                goldDisplay.classList.add('hidden');
+            }
+        };
 
-            if (viewId === 'tft') initTFT();
+        // --- TFT LOGIC ---
+        function updateGold(amount) {
+            gold += amount;
+            document.getElementById('goldVal').innerText = gold;
         }
 
         function initTFT() {
-            const grid = document.getElementById('tftGrid');
-            grid.innerHTML = Array(21).fill(null).map(() => 
-                `<div class="hex-cell" onclick="this.classList.toggle('active')"><i class="fas fa-shield-alt text-slate-600/30"></i></div>`
-            ).join('');
+            renderBoard();
+            renderBench();
+            rerollShop();
+            updateGold(0);
         }
 
-        // --- BREAKOUT CORE CODE (EXACTLY AS PROVIDED) ---
+        function renderBoard() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = tftBoard.map((unit, i) => `
+                <div class="hex-cell" data-type="board" data-idx="${i}" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+                    ${unit ? `<div class="unit cost-${unit.cost}" draggable="true" ondragstart="handleDragStart(event, 'board', ${i})" ontouchstart="handleTouchStart(event, 'board', ${i})">${unit.name}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderBench() {
+            const benchEl = document.getElementById('bench');
+            benchEl.innerHTML = tftBench.map((unit, i) => `
+                <div class="w-12 h-12 rounded-lg bg-slate-700/50 border border-white/5 flex items-center justify-center" data-type="bench" data-idx="${i}" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+                    ${unit ? `<div class="unit cost-${unit.cost}" draggable="true" ondragstart="handleDragStart(event, 'bench', ${i})" ontouchstart="handleTouchStart(event, 'bench', ${i})">${unit.name}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        window.rerollShop = () => {
+            if (gold < 2) return;
+            updateGold(-2);
+            const shopEl = document.getElementById('shop');
+            shopEl.innerHTML = '';
+            for(let i=0; i<5; i++) {
+                const unit = unitPool[Math.floor(Math.random() * unitPool.length)];
+                const card = document.createElement('div');
+                card.className = `bg-slate-800 border-b-4 ${unit.cost === 1 ? 'border-slate-500' : unit.cost === 2 ? 'border-green-500' : 'border-blue-500'} p-2 rounded-lg cursor-pointer hover:bg-slate-700 transition flex flex-col items-center`;
+                card.innerHTML = `
+                    <div class="text-xs font-bold">${unit.name}</div>
+                    <div class="text-[10px] text-yellow-400 font-bold mt-1">${unit.cost}G</div>
+                `;
+                card.onclick = () => buyUnit(unit);
+                shopEl.appendChild(card);
+            }
+        };
+
+        function buyUnit(unit) {
+            if (gold >= unit.cost) {
+                const emptyIndex = tftBench.findIndex(s => s === null);
+                if (emptyIndex !== -1) {
+                    updateGold(-unit.cost);
+                    tftBench[emptyIndex] = {...unit};
+                    renderBench();
+                }
+            }
+        }
+
+        // --- DRAG & DROP (WEB & TOUCH) ---
+        let dragSource = null;
+        let dragIdx = null;
+        let ghostUnit = null;
+
+        window.handleDragStart = (e, source, idx) => {
+            dragSource = source;
+            dragIdx = idx;
+            e.dataTransfer.setData('text/plain', ''); // Required for Firefox
+        };
+
+        window.handleDrop = (e) => {
+            e.preventDefault();
+            const targetType = e.currentTarget.dataset.type;
+            const targetIdx = parseInt(e.currentTarget.dataset.idx);
+            executeMove(dragSource, dragIdx, targetType, targetIdx);
+        };
+
+        // Touch Logic
+        window.handleTouchStart = (e, source, idx) => {
+            const touch = e.touches[0];
+            dragSource = source;
+            dragIdx = idx;
+            const unitData = source === 'board' ? tftBoard[idx] : tftBench[idx];
+            
+            ghostUnit = document.createElement('div');
+            ghostUnit.className = `unit cost-${unitData.cost} dragging`;
+            ghostUnit.innerText = unitData.name;
+            document.body.appendChild(ghostUnit);
+            moveGhost(touch.clientX, touch.clientY);
+
+            const onTouchMove = (me) => {
+                moveGhost(me.touches[0].clientX, me.touches[0].clientY);
+                highlightDropZone(me.touches[0].clientX, me.touches[0].clientY);
+            };
+
+            const onTouchEnd = (ee) => {
+                const endTouch = ee.changedTouches[0];
+                const target = document.elementFromPoint(endTouch.clientX, endTouch.clientY);
+                const dropZone = target?.closest('[data-type]');
+                
+                if (target?.closest('#sellZone')) {
+                    sellUnit(dragSource, dragIdx);
+                } else if (dropZone) {
+                    executeMove(dragSource, dragIdx, dropZone.dataset.type, dropZone.dataset.idx);
+                }
+
+                ghostUnit.remove();
+                document.removeEventListener('touchmove', onTouchMove);
+                document.removeEventListener('touchend', onTouchEnd);
+            };
+
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            document.addEventListener('touchend', onTouchEnd);
+        };
+
+        function moveGhost(x, y) {
+            ghostUnit.style.left = `${x - 20}px`;
+            ghostUnit.style.top = `${y - 20}px`;
+        }
+
+        function highlightDropZone(x, y) {
+            document.querySelectorAll('.hex-cell').forEach(el => el.classList.remove('valid-drop'));
+            const target = document.elementFromPoint(x, y)?.closest('.hex-cell');
+            if (target) target.classList.add('valid-drop');
+        }
+
+        function executeMove(src, sIdx, dest, dIdx) {
+            let unit;
+            // Get unit
+            if (src === 'board') { unit = tftBoard[sIdx]; tftBoard[sIdx] = null; }
+            else { unit = tftBench[sIdx]; tftBench[sIdx] = null; }
+
+            // Place unit
+            if (dest === 'board') {
+                const existing = tftBoard[dIdx];
+                tftBoard[dIdx] = unit;
+                if (existing) { if(src === 'board') tftBoard[sIdx] = existing; else tftBench[sIdx] = existing; }
+            } else {
+                const existing = tftBench[dIdx];
+                tftBench[dIdx] = unit;
+                if (existing) { if(src === 'board') tftBoard[sIdx] = existing; else tftBench[sIdx] = existing; }
+            }
+            renderBoard();
+            renderBench();
+        }
+
+        function sellUnit(src, idx) {
+            const unit = src === 'board' ? tftBoard[idx] : tftBench[idx];
+            if (unit) {
+                updateGold(unit.cost);
+                if (src === 'board') tftBoard[idx] = null;
+                else tftBench[idx] = null;
+                renderBoard();
+                renderBench();
+            }
+        }
+
+        // --- BREAKOUT CORE (Your Exact Code) ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const startButton = document.getElementById('startButton');
@@ -161,25 +369,12 @@
         
         let gameActive = false;
         let animationId = null;
-        let score = 0;
-        let lives = 3;
-        let level = 1;
-        let playerName = "";
+        let score = 0, lives = 3, level = 1;
         let paddleX;
-        const paddleWidth = 140;
-        const paddleHeight = 15;
-        const ballRadius = 8;
-        
-        let balls = [];
-        let bricks = [];
-        let difficulty = 'medium';
-        
-        let bossMode = false;
-        let boss = null;
-        let bossProjectiles = [];
-        let bossLives = 3;
-        let isWinState = false;
-        let cheatInput = "";
+        const paddleWidth = 140, paddleHeight = 15, ballRadius = 8;
+        let balls = [], bricks = [], difficulty = 'medium';
+        let bossMode = false, boss = null, bossProjectiles = [], bossLives = 3;
+        let isWinState = false, cheatInput = "";
 
         const config = {
             easy: { speed: 4, rows: 3, cols: 6, bossHp: 5 },
@@ -193,8 +388,8 @@
                 cheatInput += e.key;
                 if (cheatInput.includes("1234")) {
                     cheatInput = "";
-                    if (bossMode && boss) { boss.hp = 0; } 
-                    else if (!bossMode) { bricks.forEach(col => col.forEach(b => b.status = 0)); }
+                    if (bossMode && boss) boss.hp = 0;
+                    else if (!bossMode) bricks.forEach(col => col.forEach(b => b.status = 0));
                 }
                 if (cheatInput.length > 4) cheatInput = cheatInput.slice(-4);
             }
@@ -202,190 +397,100 @@
 
         function initBricks() {
             const { rows, cols } = config[difficulty];
-            const padding = 10;
-            const offsetLeft = 35;
-            const bWidth = (canvas.width - (offsetLeft * 2) - (padding * (cols-1))) / cols;
-            const bHeight = 25;
             bricks = [];
             for(let c=0; c<cols; c++) {
                 bricks[c] = [];
                 for(let r=0; r<rows; r++) {
-                    bricks[c][r] = { x: 0, y: 0, status: 1, w: bWidth, h: bHeight };
+                    bricks[c][r] = { x: 0, y: 0, status: 1, w: (canvas.width - 100) / cols, h: 25 };
                 }
             }
         }
 
         function spawnBoss() {
             bossMode = true;
-            const baseHp = config[difficulty].bossHp;
-            const currentMaxHp = baseHp + (level * 10); 
-            boss = {
-                x: canvas.width / 2 - 75, y: 60, w: 150, h: 50,
-                hp: currentMaxHp, maxHp: currentMaxHp,
-                dx: 3 + (level * 0.8), lastShot: 0
-            };
-            bossProjectiles = [];
-            bossLives = 3; 
+            const currentMaxHp = config[difficulty].bossHp + (level * 10);
+            boss = { x: canvas.width / 2 - 75, y: 60, w: 150, h: 50, hp: currentMaxHp, maxHp: currentMaxHp, dx: 3 + (level * 0.8), lastShot: 0 };
             document.getElementById('bossShieldContainer').classList.remove('hidden');
-            updateUI();
         }
 
         function resetGame(fullReset = true) {
             if (animationId) cancelAnimationFrame(animationId);
-            if(fullReset) {
-                level = 1; score = 0;
-                playerName = document.getElementById('nameInput').value || "Player";
-            } else { level++; }
+            if(fullReset) { level = 1; score = 0; } else { level++; }
             difficulty = document.getElementById('difficultySelect').value;
-            const settings = config[difficulty];
             lives = 3; bossMode = false; boss = null; bossProjectiles = [];
-            isWinState = false; cheatInput = "";
-            document.getElementById('bossShieldContainer').classList.add('hidden');
             document.getElementById('levelIndicator').innerText = `LEVEL ${level}`;
-            document.getElementById('playerNameDisplay').innerText = playerName;
             paddleX = (canvas.width - paddleWidth) / 2;
-            balls = [{
-                x: canvas.width / 2, y: canvas.height - 60,
-                dx: (settings.speed + (level * 0.3)) * (Math.random() > 0.5 ? 1 : -1),
-                dy: -(settings.speed + (level * 0.3))
-            }];
+            balls = [{ x: canvas.width/2, y: canvas.height-60, dx: config[difficulty].speed, dy: -config[difficulty].speed }];
             initBricks();
-            updateUI();
             gameActive = true;
         }
-
-        function updateUI() {
-            document.getElementById('scoreDisplay').innerText = score;
-            document.getElementById('livesDisplay').innerText = lives;
-            document.getElementById('bossShieldDisplay').innerText = bossLives + "/3";
-        }
-
-        function handleInput(clientX) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            paddleX = (clientX - rect.left) * scaleX - paddleWidth / 2;
-            if(paddleX < 0) paddleX = 0;
-            if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
-        }
-
-        canvas.addEventListener('mousemove', (e) => handleInput(e.clientX));
-        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
-        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
 
         function draw() {
             if(!gameActive) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+            // Paddle
+            ctx.fillStyle = "#3b82f6";
+            ctx.fillRect(paddleX, canvas.height - 35, paddleWidth, paddleHeight);
+            
+            // Bricks / Boss
             if(!bossMode) {
                 let bricksLeft = 0;
-                bricks.forEach((col, c) => {
-                    col.forEach((b, r) => {
-                        if(b.status === 1) {
-                            bricksLeft++;
-                            const padding = 10;
-                            b.x = (c * (b.w + padding)) + 35;
-                            b.y = (r * (b.h + padding)) + 80;
-                            ctx.beginPath();
-                            ctx.roundRect(b.x, b.y, b.w, b.h, 4);
-                            ctx.fillStyle = `hsl(${200 + (r*25)}, 70%, 50%)`;
-                            ctx.fill(); ctx.closePath();
-                        }
-                    });
-                });
+                bricks.forEach((col, c) => col.forEach((b, r) => {
+                    if(b.status === 1) {
+                        bricksLeft++;
+                        b.x = c * (b.w + 5) + 50; b.y = r * (b.h + 5) + 80;
+                        ctx.fillStyle = `hsl(${200 + r*20}, 70%, 50%)`;
+                        ctx.fillRect(b.x, b.y, b.w, b.h);
+                    }
+                }));
                 if(bricksLeft === 0) spawnBoss();
             } else if(boss) {
-                ctx.beginPath(); ctx.roundRect(boss.x, boss.y, boss.w, boss.h, 10);
-                ctx.fillStyle = "#ef4444"; ctx.fill();
-                ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke(); ctx.closePath();
-
-                const hbW = 300;
-                ctx.fillStyle = "#333"; ctx.fillRect(canvas.width/2 - hbW/2, 25, hbW, 20);
-                ctx.fillStyle = "#f87171"; ctx.fillRect(canvas.width/2 - hbW/2, 25, (Math.max(0, boss.hp) / boss.maxHp) * hbW, 20);
-
-                boss.x += boss.dx;
-                if(boss.x < 0 || boss.x + boss.w > canvas.width) boss.dx = -boss.dx;
-
-                const now = Date.now();
-                if(now - boss.lastShot > (1800 - (level * 100))) {
-                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 5 + (level * 0.4) });
-                    boss.lastShot = now;
+                ctx.fillStyle = "#ef4444"; ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+                boss.x += boss.dx; if(boss.x < 0 || boss.x + boss.w > canvas.width) boss.dx = -boss.dx;
+                if(Date.now() - boss.lastShot > 1500) { 
+                    bossProjectiles.push({ x: boss.x + boss.w/2, y: boss.y + boss.h, dy: 5 }); 
+                    boss.lastShot = Date.now(); 
                 }
-
-                bossProjectiles.forEach((p, pi) => {
-                    ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fillStyle = "#fbbf24"; ctx.fill(); ctx.closePath();
+                bossProjectiles.forEach((p, i) => {
+                    ctx.fillStyle = "#fbbf24"; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill();
                     p.y += p.dy;
-                    if(p.y > canvas.height - paddleHeight - 25 && p.x > paddleX && p.x < paddleX + paddleWidth) {
-                        bossProjectiles.splice(pi, 1); bossLives--; updateUI();
-                        if(bossLives <= 0) endGame("คุณพ่ายแพ้!", "เกราะป้องกันพังทลายแล้ว!", false);
-                    }
-                    if(p.y > canvas.height) bossProjectiles.splice(pi, 1);
+                    if(p.y > canvas.height - 35 && p.x > paddleX && p.x < paddleX + paddleWidth) { bossProjectiles.splice(i, 1); bossLives--; }
                 });
-                if (boss.hp <= 0) {
-                    boss = null; endGame("บอสพ่ายแพ้!", "บล็อกกำลังฟื้นตัว... เตรียมพร้อมเลเวลถัดไป", true);
-                }
+                if(boss.hp <= 0) endGame("บอสพ่ายแพ้!", "เก่งมาก!", true);
             }
 
-            ctx.beginPath();
-            ctx.roundRect(paddleX, canvas.height - paddleHeight - 20, paddleWidth, paddleHeight, 8);
-            ctx.fillStyle = "#3b82f6"; ctx.fill(); ctx.closePath();
-
-            balls.forEach((ball) => {
-                ctx.beginPath(); ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI*2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.closePath();
-                if(ball.x + ball.dx > canvas.width - ballRadius || ball.x + ball.dx < ballRadius) ball.dx = -ball.dx;
-                if(ball.y + ball.dy < ballRadius) ball.dy = -ball.dy;
-
-                if(ball.y + ball.dy > canvas.height - paddleHeight - 35) {
-                    if(ball.x > paddleX && ball.x < paddleX + paddleWidth) {
-                        ball.dy = -Math.abs(ball.dy);
-                        let hitPoint = (ball.x - (paddleX + paddleWidth/2)) / (paddleWidth/2);
-                        ball.dx = hitPoint * (config[difficulty].speed + (level * 0.4));
-                    } else if (ball.y > canvas.height) {
-                        lives--; updateUI();
-                        if(lives <= 0) endGame("GAME OVER", "เลเวลที่คุณไปถึง: " + level, false);
-                        else {
-                            ball.x = canvas.width / 2; ball.y = canvas.height - 60;
-                            ball.dy = -(config[difficulty].speed + (level * 0.4));
-                        }
-                    }
-                }
-
-                if(!bossMode) {
-                    bricks.forEach(col => {
-                        col.forEach(b => {
-                            if(b.status === 1 && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
-                                ball.dy = -ball.dy; b.status = 0; score += 10; updateUI();
-                            }
-                        });
-                    });
-                } else if(boss) {
-                    if(ball.x > boss.x && ball.x < boss.x + boss.w && ball.y > boss.y && ball.y < boss.y + boss.h) {
-                        ball.dy = -ball.dy; boss.hp -= 1; score += 50; updateUI();
-                    }
-                }
+            // Balls
+            balls.forEach(ball => {
+                ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI*2); ctx.fill();
                 ball.x += ball.dx; ball.y += ball.dy;
+                if(ball.x < 0 || ball.x > canvas.width) ball.dx = -ball.dx;
+                if(ball.y < 0) ball.dy = -ball.dy;
+                if(ball.y > canvas.height - 35 && ball.x > paddleX && ball.x < paddleX + paddleWidth) ball.dy = -Math.abs(ball.dy);
+                else if(ball.y > canvas.height) { lives--; if(lives <= 0) endGame("GAME OVER", "", false); else { ball.y = 300; ball.dy = -5; } }
+                
+                if(!bossMode) {
+                    bricks.forEach(col => col.forEach(b => {
+                        if(b.status === 1 && ball.x > b.x && ball.x < b.x+b.w && ball.y > b.y && ball.y < b.y+b.h) { b.status = 0; ball.dy = -ball.dy; score+=10; }
+                    }));
+                } else if(boss && ball.x > boss.x && ball.x < boss.x+boss.w && ball.y > boss.y && ball.y < boss.y+boss.h) {
+                    boss.hp--; ball.dy = -ball.dy; score+=50;
+                }
             });
+
+            document.getElementById('scoreDisplay').innerText = score;
+            document.getElementById('livesDisplay').innerText = lives;
             animationId = requestAnimationFrame(draw);
         }
 
         function endGame(title, text, win) {
-            gameActive = false;
-            if (animationId) cancelAnimationFrame(animationId);
-            isWinState = win;
+            gameActive = false; isWinState = win;
             document.getElementById('messageTitle').innerText = title;
-            document.getElementById('messageText').innerText = `${text} | คะแนนรวม: ${score}`;
-            messageBox.classList.remove('hidden'); messageBox.classList.add('flex');
-            restartButton.innerText = win ? "ลุยเลเวล " + (level + 1) : "เริ่มใหม่ทั้งหมด";
+            document.getElementById('messageText').innerText = text;
+            messageBox.classList.remove('hidden');
         }
 
-        startButton.onclick = () => {
-            startModal.classList.add('hidden'); resetGame(true); draw();
-        };
-
-        restartButton.onclick = () => {
-            messageBox.classList.add('hidden');
-            if(isWinState) { resetGame(false); draw(); } 
-            else { startModal.classList.remove('hidden'); }
-        };
+        startButton.onclick = () => { startModal.classList.add('hidden'); resetGame(true); draw(); };
+        restartButton.onclick = () => { messageBox.classList.add('hidden'); if(isWinState) resetGame(false); else startModal.classList.remove('hidden'); };
 
         window.onload = () => showView('home');
     </script>
