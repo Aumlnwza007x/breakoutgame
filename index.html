@@ -3,48 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AUM HUB - Tactical Online</title>
+    <title>AUM HUB - Game Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
+        body { font-family: 'Sarabun', sans-serif; background-color: #0f172a; color: #e2e8f0; margin: 0; overflow-x: hidden; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4); border-color: rgba(59, 130, 246, 0.5); }
+        
+        /* TFT Specific Styles */
+        .hex-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .hex-cell { 
+            aspect-ratio: 1/1; background: rgba(51, 65, 85, 0.4); 
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+        
+        /* Breakout Specific Styles */
+        #breakoutCanvas { background: #000; border-radius: 0.5rem; touch-action: none; }
+    </style>
+</head>
+<body>
+
+    <!-- NAVIGATION -->
+    <nav class="p-4 flex justify-between items-center glass sticky top-0 z-[100]">
+        <div class="flex items-center gap-3 cursor-pointer" onclick="showView('home')">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
+                <i class="fas fa-cubes text-white"></i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
+        </div>
+        <div id="navActions" class="flex items-center gap-4">
+            <span id="userIdDisplay" class="hidden md:inline text-[10px] text-slate-500 font-mono"></span>
+            <button onclick="showView('home')" class="text-sm text-slate-400 hover:text-white transition-colors">
+                <i class="fas fa-home mr-1"></i> หน้าหลัก
+            </button>
+        </div>
+    </nav>
+
+    <!-- VIEW: HOME -->
+    <main id="view-home" class="container mx-auto px-6 py-12">
+        <div class="text-center mb-16">
+            <h2 class="text-5xl font-black mb-4 uppercase tracking-tighter">Game Center</h2>
+            <p class="text-slate-400">ยินดีต้อนรับสู่ศูนย์รวมเกมของ AUM เลือกเกมที่ต้องการด้านล่าง</p>
+        </div>
+
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            <!-- TFT Card -->
+            <div onclick="showView('tft-lobby')" class="glass p-6 rounded-3xl border-2 border-blue-500/20 card-hover cursor-pointer relative overflow-hidden group">
+                <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
+                    <i class="fas fa-chess-board text-2xl text-white"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Tactical Online</h3>
+                <p class="text-slate-400 text-sm mb-6">เกมวางแผนการรบแบบ Auto-Battler ออนไลน์กับเพื่อนๆ</p>
+                <div class="flex items-center text-blue-400 font-bold text-sm">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i></div>
+                <div class="absolute top-4 right-4 bg-yellow-500 text-black text-[10px] font-bold px-2 py-1 rounded-full uppercase">Update</div>
+            </div>
+
+            <!-- Breakout Card -->
+            <div onclick="showView('breakout')" class="glass p-6 rounded-3xl border-2 border-red-500/20 card-hover cursor-pointer relative overflow-hidden group">
+                <div class="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
+                    <i class="fas fa-th text-2xl text-white"></i>
+                </div>
+                <h3 class="text-2xl font-bold mb-2">Breakout Boss</h3>
+                <p class="text-slate-400 text-sm mb-6">ทำลายบล็อกและเอาชนะบอสในตำนานเพื่อความอยู่รอด</p>
+                <div class="flex items-center text-red-400 font-bold text-sm">เล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- VIEW: TFT LOBBY -->
+    <main id="view-tft-lobby" class="hidden container mx-auto px-6 py-20 text-center">
+        <h2 class="text-4xl font-black mb-12 uppercase">Tactical Lobby</h2>
+        <div class="max-w-md mx-auto space-y-4">
+            <button onclick="createTFTGame()" class="w-full bg-blue-600 hover:bg-blue-700 p-6 rounded-2xl font-bold text-xl transition-all">สร้างห้องใหม่</button>
+            <input type="text" id="tftRoomInput" placeholder="รหัสห้อง 6 หลัก" class="w-full bg-slate-800 border border-slate-700 p-6 rounded-2xl text-center font-mono text-xl uppercase outline-none focus:border-blue-500">
+            <button onclick="joinTFTGame()" class="w-full bg-slate-700 hover:bg-slate-600 p-4 rounded-2xl font-bold transition-all">เข้าร่วม</button>
+        </div>
+    </main>
+
+    <!-- VIEW: TFT GAME -->
+    <main id="view-tft-game" class="hidden container mx-auto px-4 py-6">
+        <div class="grid lg:grid-cols-4 gap-6">
+            <div class="glass p-4 rounded-2xl h-fit">
+                <div id="tftRoomIdDisplay" class="text-xs font-bold text-yellow-500 mb-4 uppercase"></div>
+                <h3 class="text-[10px] text-slate-500 uppercase mb-2">Players</h3>
+                <div id="tftPlayerList" class="space-y-2"></div>
+                <button id="tftSellBtn" onclick="sellTFTUnit()" class="hidden mt-4 w-full bg-red-500/20 text-red-400 border border-red-500/50 p-2 rounded-lg text-xs font-bold">Sell Unit</button>
+            </div>
+            <div class="lg:col-span-2 space-y-4">
+                <div class="glass p-4 rounded-2xl flex justify-between">
+                    <div class="flex gap-4">
+                        <span class="text-yellow-500 font-bold"><i class="fas fa-coins"></i> <span id="tftGold">50</span></span>
+                        <span class="text-blue-400 font-bold">Lv.<span id="tftLevel">1</span></span>
+                    </div>
+                    <div class="text-xs text-slate-400 uppercase tracking-widest pt-1">Preparation</div>
+                </div>
+                <div class="glass aspect-[4/3] rounded-3xl p-6 flex flex-col justify-end relative">
+                    <div class="hex-grid opacity-20 mb-8" id="tftEnemyField"></div>
+                    <div class="hex-grid" id="tftPlayerField"></div>
+                </div>
+                <div class="glass p-4 rounded-2xl flex justify-center gap-2" id="tftBench"></div>
+            </div>
+            <div class="glass p-6 rounded-2xl h-fit">
+                <div class="flex justify-between items-center mb-4"><span class="font-bold text-xs uppercase text-slate-400">Shop</span></div>
+                <div id="tftShop" class="space-y-2"></div>
+                <div class="grid grid-cols-2 gap-2 mt-4">
+                    <button onclick="rerollTFT()" class="bg-slate-700 p-2 rounded text-[10px] font-bold">Reroll (2G)</button>
+                    <button class="bg-slate-700 p-2 rounded text-[10px] font-bold">Buy XP (4G)</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- VIEW: BREAKOUT GAME -->
+    <main id="view-breakout" class="hidden container mx-auto px-4 py-8 flex flex-col items-center">
+        <div class="flex justify-between w-full max-w-3xl mb-4 px-2">
+            <h2 id="boLevelDisplay" class="font-bold text-blue-400">LEVEL 1</h2>
+            <div class="flex gap-4">
+                <span class="text-sm">Score: <span id="boScore">0</span></span>
+                <span class="text-sm">Lives: <span id="boLives" class="text-red-400">3</span></span>
+            </div>
+        </div>
+        <div class="relative w-full flex justify-center group">
+            <canvas id="breakoutCanvas" width="800" height="600" class="w-full h-auto max-w-3xl border border-slate-700"></canvas>
+            
+            <!-- Breakout Modals -->
+            <div id="boStartModal" class="absolute inset-0 bg-black/80 flex items-center justify-center z-10 p-4 rounded-lg">
+                <div class="glass p-8 rounded-2xl text-center max-w-sm w-full">
+                    <h2 class="text-2xl font-bold mb-4">Breakout: Boss Edition</h2>
+                    <input type="text" id="boNameInput" placeholder="ชื่อของคุณ" class="w-full bg-slate-700 p-3 rounded-lg mb-4 outline-none">
+                    <button onclick="startBreakout()" class="w-full bg-blue-600 py-3 rounded-lg font-bold shadow-lg shadow-blue-500/30">เริ่มเล่นเลย</button>
+                </div>
+            </div>
+
+            <div id="boMsgBox" class="absolute inset-0 bg-black/90 hidden flex-col items-center justify-center z-20 p-4 rounded-lg">
+                <h2 id="boMsgTitle" class="text-3xl font-bold mb-2"></h2>
+                <p id="boMsgText" class="text-slate-400 mb-6"></p>
+                <button id="boRestartBtn" class="w-full max-w-xs bg-green-600 py-3 rounded-lg font-bold">ตกลง</button>
+            </div>
+        </div>
+    </main>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection, query, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        // Firebase Config
+        // --- GLOBAL APP LOGIC ---
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'tft-online-aum';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'aum-hub-portal';
 
-        // State Management
         let user = null;
-        let currentGameId = null;
-        let gameState = {
-            players: {},
-            units: [],
-            phase: 'PREPARATION'
+        window.showView = (viewName) => {
+            document.querySelectorAll('main').forEach(m => m.classList.add('hidden'));
+            const target = document.getElementById(`view-${viewName}`);
+            if(target) target.classList.remove('hidden');
+            
+            // Stop any active games
+            if(viewName !== 'breakout') stopBreakout();
         };
 
-        // Local Player State
-        let localPlayer = {
-            gold: 50,
-            level: 1,
-            bench: Array(9).fill(null),
-            board: Array(14).fill(null),
-            selectedUnit: null
-        };
-
-        const unitTypes = [
-            { name: "Knight", cost: 1, icon: "fa-shield-halved", color: "text-blue-400", bg: "bg-blue-500/20" },
-            { name: "Archer", cost: 2, icon: "fa-bullseye", color: "text-green-400", bg: "bg-green-500/20" },
-            { name: "Mage", cost: 3, icon: "fa-wand-sparkles", color: "text-purple-400", bg: "bg-purple-500/20" },
-            { name: "Assassin", cost: 4, icon: "fa-khanda", color: "text-red-400", bg: "bg-red-500/20" }
-        ];
-
-        // --- AUTH & MULTIPLAYER ---
-        async function initAuth() {
+        async function init() {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token);
             } else {
@@ -52,354 +177,225 @@
             }
             onAuthStateChanged(auth, (u) => {
                 user = u;
-                if(user) {
-                    const idDisplay = document.getElementById('userIdDisplay');
-                    if(idDisplay) idDisplay.innerText = `ID: ${user.uid.slice(0,6)}`;
-                }
+                if(user) document.getElementById('userIdDisplay').innerText = `ID: ${user.uid.slice(0,6)}`;
             });
+            showView('home');
         }
 
-        window.createRoom = async () => {
-            if(!user) return;
-            const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-            currentGameId = roomId;
-            const gameDoc = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            await setDoc(gameDoc, {
+        // --- TFT LOGIC ---
+        let localTFT = { gold: 50, level: 1, bench: Array(9).fill(null), board: Array(14).fill(null), selected: null };
+        const unitTypes = [
+            { name: "Knight", cost: 1, icon: "fa-shield-halved", color: "text-blue-400", bg: "bg-blue-500/20" },
+            { name: "Archer", cost: 2, icon: "fa-bullseye", color: "text-green-400", bg: "bg-green-500/20" },
+            { name: "Mage", cost: 3, icon: "fa-wand-sparkles", color: "text-purple-400", bg: "bg-purple-500/20" }
+        ];
+
+        window.createTFTGame = async () => {
+            const id = Math.random().toString(36).substring(7).toUpperCase();
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', id), {
                 host: user.uid,
-                status: 'waiting',
-                players: { [user.uid]: { name: "Player 1", hp: 100, gold: 50 } },
-                createdAt: Date.now()
+                players: { [user.uid]: { name: "Player 1", hp: 100 } }
             });
-            listenToRoom(roomId);
-            showTFTView();
+            startTFT(id);
         };
 
-        window.joinRoom = async () => {
-            const roomId = document.getElementById('roomInput').value.toUpperCase();
-            if(!roomId) return;
-            currentGameId = roomId;
-            const gameDoc = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            await updateDoc(gameDoc, {
-                [`players.${user.uid}`]: { name: "Player 2", hp: 100, gold: 50 }
+        window.joinTFTGame = async () => {
+            const id = document.getElementById('tftRoomInput').value.toUpperCase();
+            if(!id) return;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', id), {
+                [`players.${user.uid}`]: { name: "Player 2", hp: 100 }
             });
-            listenToRoom(roomId);
-            showTFTView();
+            startTFT(id);
         };
 
-        function listenToRoom(roomId) {
-            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId), (doc) => {
-                if(doc.exists()) {
-                    gameState = doc.data();
-                    renderPlayers();
-                }
-            }, (err) => console.error(err));
-            document.getElementById('currentRoomId').innerText = `ROOM: ${roomId}`;
-        }
-
-        // --- UI & CORE LOGIC ---
-        function renderPlayers() {
-            const list = document.getElementById('playerList');
-            if(!list) return;
-            list.innerHTML = '';
-            Object.entries(gameState.players).forEach(([id, p]) => {
-                list.innerHTML += `<div class="text-xs ${id === user?.uid ? 'text-blue-400 font-bold' : ''}">${p.name}: ${p.hp} HP</div>`;
+        function startTFT(roomId) {
+            showView('tft-game');
+            document.getElementById('tftRoomIdDisplay').innerText = `ROOM: ${roomId}`;
+            renderTFTShop();
+            renderTFTBench();
+            renderTFTBoard();
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId), (snap) => {
+                if(!snap.exists()) return;
+                const players = snap.data().players;
+                const list = document.getElementById('tftPlayerList');
+                list.innerHTML = Object.entries(players).map(([id, p]) => 
+                    `<div class="text-[11px] p-2 glass rounded-lg ${id === user.uid ? 'border-blue-500' : ''}">${p.name}: ${p.hp} HP</div>`
+                ).join('');
             });
         }
 
-        window.rerollShop = () => {
-            if(localPlayer.gold < 2) return;
-            localPlayer.gold -= 2;
-            renderShop();
-            updateStats();
-        };
-
-        function renderShop() {
-            const shop = document.getElementById('unitShop');
-            if(!shop) return;
+        function renderTFTShop() {
+            const shop = document.getElementById('tftShop');
             shop.innerHTML = '';
             for(let i=0; i<5; i++) {
-                const unit = unitTypes[Math.floor(Math.random() * unitTypes.length)];
-                const card = document.createElement('div');
-                card.className = `unit-card p-3 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-800 transition`;
-                card.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg ${unit.bg} flex items-center justify-center ${unit.color}"><i class="fas ${unit.icon}"></i></div>
-                        <div><div class="text-xs font-bold">${unit.name}</div><div class="text-[10px] text-slate-500">Cost: ${unit.cost}</div></div>
-                    </div>
-                    <div class="text-yellow-500 font-bold text-sm">${unit.cost}G</div>
-                `;
-                card.onclick = () => buyUnit(unit);
-                shop.appendChild(card);
+                const u = unitTypes[Math.floor(Math.random() * unitTypes.length)];
+                const div = document.createElement('div');
+                div.className = `flex justify-between items-center p-2 glass rounded-xl cursor-pointer hover:bg-slate-800 transition`;
+                div.innerHTML = `<div class="flex items-center gap-2"><div class="${u.bg} p-2 rounded ${u.color}"><i class="fas ${u.icon}"></i></div><div><div class="text-[10px] font-bold">${u.name}</div><div class="text-[8px] text-slate-500">${u.cost}G</div></div></div>`;
+                div.onclick = () => buyTFTUnit(u);
+                shop.appendChild(div);
             }
         }
 
-        function buyUnit(unit) {
-            if(localPlayer.gold < unit.cost) return;
-            const emptyBenchIdx = localPlayer.bench.indexOf(null);
-            if(emptyBenchIdx === -1) return;
-            
-            localPlayer.gold -= unit.cost;
-            localPlayer.bench[emptyBenchIdx] = { ...unit, id: Math.random() };
-            renderBench();
-            updateStats();
+        function buyTFTUnit(u) {
+            if(localTFT.gold < u.cost) return;
+            const idx = localTFT.bench.indexOf(null);
+            if(idx === -1) return;
+            localTFT.gold -= u.cost;
+            localTFT.bench[idx] = { ...u, id: Math.random() };
+            updateTFTStats();
+            renderTFTBench();
         }
 
-        function updateStats() {
-            const goldEl = document.getElementById('tftGold');
-            const shopGoldEl = document.getElementById('shopGoldDisplay');
-            const levelEl = document.getElementById('tftLevel');
-            if(goldEl) goldEl.innerText = localPlayer.gold;
-            if(shopGoldEl) shopGoldEl.innerText = `${localPlayer.gold}G`;
-            if(levelEl) levelEl.innerText = localPlayer.level;
+        function updateTFTStats() {
+            document.getElementById('tftGold').innerText = localTFT.gold;
+            document.getElementById('tftLevel').innerText = localTFT.level;
         }
 
-        // --- DRAG & DROP & SELECTION ---
-        let draggedUnit = null;
-        let dragSource = null;
-        let dragIndex = null;
-
-        function renderBench() {
-            const benchEl = document.getElementById('playerBench');
-            if(!benchEl) return;
-            benchEl.innerHTML = '';
-            localPlayer.bench.forEach((unit, i) => {
+        function renderTFTBench() {
+            const el = document.getElementById('tftBench');
+            el.innerHTML = '';
+            localTFT.bench.forEach((u, i) => {
                 const slot = document.createElement('div');
-                slot.className = `w-14 h-14 bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-700 flex items-center justify-center relative`;
-                if(unit) {
-                    slot.innerHTML = `<div class="unit-item ${unit.color} cursor-grab active:cursor-grabbing" draggable="true">
-                        <i class="fas ${unit.icon} text-xl"></i>
-                    </div>`;
-                    const item = slot.querySelector('.unit-item');
-                    item.onmousedown = () => selectUnit(unit, 'bench', i);
-                    item.ondragstart = () => {
-                        draggedUnit = unit;
-                        dragSource = 'bench';
-                        dragIndex = i;
-                    };
+                slot.className = `w-12 h-12 glass rounded-lg flex items-center justify-center border-dashed border-slate-700 border-2`;
+                if(u) {
+                    slot.innerHTML = `<i class="fas ${u.icon} ${u.color} text-xl cursor-grab"></i>`;
+                    slot.onclick = () => { localTFT.selected = {u, type:'bench', i}; document.getElementById('tftSellBtn').classList.remove('hidden'); };
                 }
-                slot.ondragover = (e) => e.preventDefault();
-                slot.ondrop = () => handleDrop('bench', i);
-                benchEl.appendChild(slot);
+                el.appendChild(slot);
             });
         }
 
-        function renderBoard() {
-            const boardEl = document.getElementById('playerField');
-            if(!boardEl) return;
-            boardEl.innerHTML = '';
-            localPlayer.board.forEach((unit, i) => {
-                const hex = document.createElement('div');
-                hex.className = `hex-cell border-2 ${unit ? 'border-blue-500/30' : 'border-transparent'}`;
-                if(unit) {
-                    hex.innerHTML = `<div class="unit-item ${unit.color}" draggable="true"><i class="fas ${unit.icon} text-xl"></i></div>`;
-                    const item = hex.querySelector('.unit-item');
-                    item.onmousedown = () => selectUnit(unit, 'board', i);
-                    item.ondragstart = () => {
-                        draggedUnit = unit;
-                        dragSource = 'board';
-                        dragIndex = i;
-                    };
-                }
-                hex.ondragover = (e) => e.preventDefault();
-                hex.ondrop = () => handleDrop('board', i);
-                boardEl.appendChild(hex);
-            });
-        }
-
-        function handleDrop(targetType, targetIdx) {
-            if(!draggedUnit) return;
-            if(dragSource === 'bench') localPlayer.bench[dragIndex] = null;
-            else localPlayer.board[dragIndex] = null;
-            if(targetType === 'bench') localPlayer.bench[targetIdx] = draggedUnit;
-            else localPlayer.board[targetIdx] = draggedUnit;
-            draggedUnit = null;
-            renderBench();
-            renderBoard();
-        }
-
-        function selectUnit(unit, type, index) {
-            localPlayer.selectedUnit = { unit, type, index };
-            const sellBtn = document.getElementById('sellBtn');
-            if(sellBtn) {
-                sellBtn.classList.remove('hidden');
-                sellBtn.innerHTML = `<i class="fas fa-coins mr-1"></i> Sell ${unit.name} (+${unit.cost}G)`;
+        function renderTFTBoard() {
+            const el = document.getElementById('tftPlayerField');
+            el.innerHTML = '';
+            for(let i=0; i<14; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'hex-cell';
+                el.appendChild(cell);
             }
         }
 
-        window.sellUnit = () => {
-            if(!localPlayer.selectedUnit) return;
-            const { unit, type, index } = localPlayer.selectedUnit;
-            localPlayer.gold += unit.cost;
-            if(type === 'bench') localPlayer.bench[index] = null;
-            else localPlayer.board[index] = null;
-            localPlayer.selectedUnit = null;
-            document.getElementById('sellBtn').classList.add('hidden');
-            renderBench();
-            renderBoard();
-            updateStats();
+        window.rerollTFT = () => { if(localTFT.gold >= 2) { localTFT.gold -= 2; updateTFTStats(); renderTFTShop(); } };
+        window.sellTFTUnit = () => {
+            if(!localTFT.selected) return;
+            localTFT.gold += localTFT.selected.u.cost;
+            if(localTFT.selected.type === 'bench') localTFT.bench[localTFT.selected.i] = null;
+            localTFT.selected = null;
+            document.getElementById('tftSellBtn').classList.add('hidden');
+            renderTFTBench();
+            updateTFTStats();
         };
 
-        // --- VIEW CONTROLS ---
-        window.showTFTLobby = () => {
-            document.getElementById('homeView').classList.add('hidden');
-            document.getElementById('lobbyView').classList.remove('hidden');
-            document.getElementById('navActions').classList.remove('hidden');
+        // --- BREAKOUT LOGIC ---
+        const boCanvas = document.getElementById('breakoutCanvas');
+        const boCtx = boCanvas.getContext('2d');
+        let boActive = false, boScore = 0, boLives = 3, boLevel = 1, boAnim = null;
+        let boPaddle = { x: 400 - 70, w: 140, h: 15 };
+        let boBall = { x: 400, y: 540, dx: 5, dy: -5, r: 8 };
+        let boBricks = [];
+        let boBoss = null;
+
+        window.startBreakout = () => {
+            document.getElementById('boStartModal').classList.add('hidden');
+            resetBreakout(true);
+            boActive = true;
+            runBreakout();
         };
 
-        function showTFTView() {
-            document.getElementById('lobbyView').classList.add('hidden');
-            document.getElementById('tftView').classList.remove('hidden');
-            renderShop();
-            renderBench();
-            renderBoard();
-            updateStats();
+        function resetBreakout(full = true) {
+            if(full) { boScore = 0; boLevel = 1; }
+            else boLevel++;
+            boLives = 3;
+            boBall = { x: 400, y: 540, dx: 4 + boLevel, dy: -(4 + boLevel), r: 8 };
+            boPaddle.x = 400 - 70;
+            initBoBricks();
+            boBoss = null;
+            updateBoUI();
         }
 
-        window.onload = initAuth;
+        function initBoBricks() {
+            boBricks = [];
+            const rows = 3 + boLevel, cols = 8;
+            for(let c=0; c<cols; c++) {
+                boBricks[c] = [];
+                for(let r=0; r<rows; r++) boBricks[c][r] = { x: 0, y: 0, status: 1 };
+            }
+        }
+
+        function updateBoUI() {
+            document.getElementById('boScore').innerText = boScore;
+            document.getElementById('boLives').innerText = boLives;
+            document.getElementById('boLevelDisplay').innerText = `LEVEL ${boLevel}`;
+        }
+
+        function stopBreakout() { boActive = false; cancelAnimationFrame(boAnim); }
+
+        function runBreakout() {
+            if(!boActive) return;
+            boCtx.clearRect(0, 0, 800, 600);
+            
+            // Paddle
+            boCtx.fillStyle = "#3b82f6";
+            boCtx.fillRect(boPaddle.x, 600 - 30, boPaddle.w, boPaddle.h);
+
+            // Ball
+            boCtx.beginPath(); boCtx.arc(boBall.x, boBall.y, boBall.r, 0, Math.PI*2);
+            boCtx.fillStyle = "#FFF"; boCtx.fill(); boCtx.closePath();
+
+            // Collision: Walls
+            if(boBall.x + boBall.dx > 800 - boBall.r || boBall.x + boBall.dx < boBall.r) boBall.dx = -boBall.dx;
+            if(boBall.y + boBall.dy < boBall.r) boBall.dy = -boBall.dy;
+            else if(boBall.y + boBall.dy > 600 - 35) {
+                if(boBall.x > boPaddle.x && boBall.x < boPaddle.x + boPaddle.w) boBall.dy = -boBall.dy;
+                else if(boBall.y > 600) {
+                    boLives--; updateBoUI();
+                    if(boLives <= 0) boEnd(false);
+                    else { boBall.x = 400; boBall.y = 500; boBall.dy = -5; }
+                }
+            }
+
+            // Bricks
+            let count = 0;
+            boBricks.forEach((col, c) => {
+                col.forEach((b, r) => {
+                    if(b.status === 1) {
+                        count++;
+                        b.x = c * 95 + 25; b.y = r * 30 + 80;
+                        boCtx.fillStyle = `hsl(${200 + r*20}, 70%, 50%)`;
+                        boCtx.fillRect(b.x, b.y, 85, 20);
+                        if(boBall.x > b.x && boBall.x < b.x + 85 && boBall.y > b.y && boBall.y < b.y + 20) {
+                            boBall.dy = -boBall.dy; b.status = 0; boScore += 10; updateBoUI();
+                        }
+                    }
+                });
+            });
+
+            if(count === 0) boEnd(true);
+
+            boBall.x += boBall.dx; boBall.y += boBall.dy;
+            boAnim = requestAnimationFrame(runBreakout);
+        }
+
+        function boEnd(win) {
+            boActive = false;
+            const box = document.getElementById('boMsgBox');
+            box.classList.remove('hidden'); box.classList.add('flex');
+            document.getElementById('boMsgTitle').innerText = win ? "เลเวลสำเร็จ!" : "จบเกม";
+            document.getElementById('boMsgText').innerText = `คะแนนของคุณคือ: ${boScore}`;
+            document.getElementById('boRestartBtn').onclick = () => {
+                box.classList.add('hidden');
+                if(win) { resetBreakout(false); boActive = true; runBreakout(); }
+                else document.getElementById('boStartModal').classList.remove('hidden');
+            };
+        }
+
+        boCanvas.addEventListener('mousemove', (e) => {
+            const rect = boCanvas.getBoundingClientRect();
+            boPaddle.x = (e.clientX - rect.left) * (800 / rect.width) - boPaddle.w / 2;
+        });
+
+        init();
     </script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap');
-        body { font-family: 'Sarabun', sans-serif; background-color: #0f172a; color: #e2e8f0; overflow-x: hidden; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .hex-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-        .hex-cell { 
-            aspect-ratio: 1/1; background: rgba(51, 65, 85, 0.4); 
-            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
-        }
-        .hex-cell:hover { background: rgba(59, 130, 246, 0.2); }
-        .unit-card { border: 1px solid #334155; }
-        .unit-item { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-        .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
-        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5); }
-    </style>
-</head>
-<body class="min-h-screen">
-
-    <!-- NAVIGATION -->
-    <nav class="p-4 flex justify-between items-center glass sticky top-0 z-50">
-        <div class="flex items-center gap-3 cursor-pointer" onclick="location.reload()">
-            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/50">
-                <i class="fas fa-chess-knight text-white"></i>
-            </div>
-            <h1 class="text-xl font-bold tracking-tighter">AUM<span class="text-blue-500">HUB</span></h1>
-        </div>
-        <div id="navActions" class="hidden flex items-center gap-4">
-            <span id="userIdDisplay" class="text-[10px] text-slate-500 font-mono"></span>
-            <span id="currentRoomId" class="text-xs font-bold text-yellow-500"></span>
-            <button onclick="location.reload()" class="text-sm text-slate-400 hover:text-white transition-colors">
-                <i class="fas fa-home mr-1"></i> เมนูหลัก
-            </button>
-        </div>
-    </nav>
-
-    <!-- HOME VIEW (โครงสร้างเดิม) -->
-    <main id="homeView" class="container mx-auto px-6 py-12">
-        <div class="text-center mb-16">
-            <h2 class="text-5xl font-black mb-4 uppercase tracking-tighter">ยินดีต้อนรับสู่ AUM HUB</h2>
-            <p class="text-slate-400">เลือกโหมดเกมที่ต้องการเล่นด้านล่าง</p>
-        </div>
-
-        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            <!-- TFT Game Card (New Version) -->
-            <div onclick="showTFTLobby()" class="glass p-6 rounded-3xl border-2 border-blue-500/20 card-hover cursor-pointer relative overflow-hidden group">
-                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <i class="fas fa-bolt text-8xl text-blue-500"></i>
-                </div>
-                <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-xl">
-                    <i class="fas fa-chess-board text-2xl text-white"></i>
-                </div>
-                <h3 class="text-2xl font-bold mb-2">Tactical Online</h3>
-                <p class="text-slate-400 text-sm mb-6">เล่น TFT ออนไลน์กับเพื่อนๆ วางกลยุทธ์ และจัดทีมเพื่อเป็นที่หนึ่ง</p>
-                <div class="flex items-center text-blue-400 font-bold text-sm">
-                    เข้าเล่นตอนนี้ <i class="fas fa-arrow-right ml-2 group-hover:translate-x-2 transition-transform"></i>
-                </div>
-                <div class="absolute top-4 right-4 bg-yellow-500 text-black text-[10px] font-bold px-2 py-1 rounded-full uppercase">NEW</div>
-            </div>
-
-            <!-- Placeholder for other games -->
-            <div class="glass p-6 rounded-3xl border-2 border-slate-700/50 opacity-60 grayscale cursor-not-allowed">
-                <div class="w-14 h-14 bg-slate-700 rounded-2xl flex items-center justify-center mb-6">
-                    <i class="fas fa-gamepad text-2xl text-slate-400"></i>
-                </div>
-                <h3 class="text-2xl font-bold mb-2">Coming Soon</h3>
-                <p class="text-slate-400 text-sm mb-6">โหมดเกมอื่นๆ กำลังตามมาในเร็วๆ นี้ ติดตามชมได้เลย</p>
-            </div>
-        </div>
-    </main>
-
-    <!-- MULTIPLAYER LOBBY -->
-    <main id="lobbyView" class="hidden container mx-auto px-6 py-20 text-center">
-        <h2 class="text-5xl font-black mb-12 uppercase tracking-tighter">Tactical Online</h2>
-        
-        <div class="max-w-md mx-auto space-y-4">
-            <button onclick="createRoom()" class="w-full bg-blue-600 hover:bg-blue-700 p-6 rounded-2xl font-bold text-xl shadow-xl shadow-blue-500/20 transition-all flex items-center justify-center gap-3">
-                <i class="fas fa-plus-circle"></i> สร้างห้องเล่นใหม่
-            </button>
-            
-            <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500">
-                    <i class="fas fa-hashtag"></i>
-                </div>
-                <input type="text" id="roomInput" placeholder="ใส่รหัสห้อง (6 หลัก)" class="w-full bg-slate-800 border border-slate-700 p-6 pl-12 rounded-2xl text-center font-mono text-xl focus:border-blue-500 outline-none uppercase">
-            </div>
-            
-            <button onclick="joinRoom()" class="w-full bg-slate-700 hover:bg-slate-600 p-4 rounded-2xl font-bold transition-all">
-                เข้าร่วมห้องเพื่อน
-            </button>
-        </div>
-    </main>
-
-    <!-- TFT GAME VIEW (NEW VERSION) -->
-    <main id="tftView" class="hidden container mx-auto px-4 py-6">
-        <div class="grid lg:grid-cols-4 gap-6">
-            
-            <!-- LEFT: Player List -->
-            <div class="glass p-4 rounded-2xl h-fit">
-                <h3 class="text-[10px] uppercase tracking-widest text-slate-500 mb-3">Players in Room</h3>
-                <div id="playerList" class="space-y-2"></div>
-                <div class="h-px bg-slate-700 my-4"></div>
-                <button id="sellBtn" onclick="sellUnit()" class="hidden w-full bg-red-500/20 text-red-400 border border-red-500/50 p-2 rounded-lg text-xs font-bold hover:bg-red-500/40 transition-all">
-                    Sell Unit
-                </button>
-            </div>
-
-            <!-- CENTER: Board -->
-            <div class="lg:col-span-2 space-y-4">
-                <div class="glass p-4 rounded-2xl flex justify-between items-center">
-                    <div class="flex items-center gap-4">
-                        <div class="text-yellow-500 font-bold"><i class="fas fa-coins mr-1"></i> <span id="tftGold">50</span></div>
-                        <div class="text-blue-400 font-bold"><i class="fas fa-level-up-alt mr-1"></i> Lv.<span id="tftLevel">1</span></div>
-                    </div>
-                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest">Preparation Phase</div>
-                    <button class="bg-red-600 px-4 py-1 rounded text-[10px] font-bold uppercase">Ready</button>
-                </div>
-
-                <div class="glass aspect-[4/3] rounded-3xl p-6 flex flex-col justify-end">
-                    <div class="hex-grid opacity-30 mb-8" id="enemyField">
-                        <div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div>
-                        <div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div><div class="hex-cell"></div>
-                    </div>
-                    <div class="hex-grid" id="playerField"></div>
-                </div>
-
-                <div class="glass p-4 rounded-2xl flex justify-center gap-2" id="playerBench"></div>
-            </div>
-
-            <!-- RIGHT: Shop -->
-            <div class="glass p-6 rounded-2xl h-fit">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold uppercase text-xs tracking-widest text-slate-400">Unit Shop</h3>
-                    <span id="shopGoldDisplay" class="text-yellow-500 font-bold text-sm">50G</span>
-                </div>
-                <div class="flex flex-col gap-2" id="unitShop"></div>
-                <div class="mt-4 grid grid-cols-2 gap-2">
-                    <button onclick="rerollShop()" class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg text-[10px] font-bold"><i class="fas fa-sync-alt mr-1"></i> Reroll (2G)</button>
-                    <button class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg text-[10px] font-bold"><i class="fas fa-arrow-up mr-1"></i> Buy XP (4G)</button>
-                </div>
-            </div>
-        </div>
-    </main>
-
 </body>
 </html>
